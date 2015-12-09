@@ -45,8 +45,8 @@
             'cl:string
             fix
             (cl:nreverse (helper (cl:concatenate 'cl:list
-                                                 (strip-prefix "egl"
-                                                               (strip-prefix "EGL_" name)))
+                                                 (strip-prefix "mdb_"
+                                                               (strip-prefix "MDB_" name)))
                                  cl:nil cl:nil))
             fix)
            package))))))

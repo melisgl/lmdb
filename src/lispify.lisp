@@ -1,5 +1,5 @@
 ;;;; Define our own lispify function
-(in-package :lmdb)
+(in-package :lmdb.low)
 
 (cl:defmacro defanonenum (cl:&body enums)
   "Converts anonymous enums to defconstants."

@@ -166,7 +166,6 @@
            :strerror
            :string
            :strip-prefix
-           :swig-lispify
            :txn
            :txn-abort
            :txn-begin

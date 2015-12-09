@@ -5,7 +5,7 @@
 %}
 
 %insert("lisphead") %{
-(in-package :lmdb)
+(in-package :lmdb.low)
 %}
 %feature("intern_function", "swig-lispify");
 

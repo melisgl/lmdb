@@ -17,7 +17,11 @@
            :commit-transaction
            :database
            :make-database
-           :open-database)
+           :open-database
+           :make-value
+           :value-p
+           :value-size
+           :value-data)
   (:documentation "The high-level LMDB interface."))
 (in-package :lmdb)
 
@@ -147,7 +151,7 @@ floats, booleans and strings. Returns a (size . array) pair."
   (destructuring-bind (size . vector)
       (convert-data data)
     (%make-value :size size
-                 :data data)))
+                 :data vector)))
 
 ;;; Viscera
 

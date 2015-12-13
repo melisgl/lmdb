@@ -11,18 +11,36 @@
 (defparameter +env-directory+
   (asdf:system-relative-pathname :lmdb #p"t/env/"))
 
-(test connect
+(test environment
   (let ((env))
-    ;; Create directory
-    (ensure-directories-exist +env-directory+)
     (finishes
-     (setf env (lmdb:make-environment +env-directory+)))
+      (setf env (lmdb:make-environment +env-directory+)))
+    (lmdb:with-environment (env)
+      (finishes
+        (lmdb:open-environment env))
+      (finishes
+        (lmdb:environment-statistics env))
+      (finishes
+        (lmdb:environment-info env)))))
+
+(test database
+  (let ((env))
     (finishes
-      (lmdb:open-environment env))
-    (finishes
-     (lmdb:environment-statistics env))
-    (finishes
-     (lmdb:environment-info env))))
+      (setf env (lmdb:make-environment +env-directory+)))
+    (lmdb:with-environment (env)
+      (finishes
+        (lmdb:open-environment env))
+      (let ((txn))
+        (finishes
+          (setf txn (lmdb:make-transaction env)))
+        (finishes
+          (lmdb:begin-transaction txn))
+        (let ((db))
+          (finishes
+            (setf db (lmdb:make-database "db")))
+          (finishes
+            (lmdb:open-database db txn)))))))
+
 
 (defun run-tests ()
   (run! 'tests))

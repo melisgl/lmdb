@@ -82,7 +82,12 @@
    (name :reader database-name
          :initarg :name
          :type string
-         :documentation "The database name."))
+         :documentation "The database name.")
+   (create :reader database-create-p
+           :initarg :create
+           :type boolean
+           :documentation "Whether or not to create the database if it doesn't
+           exist."))
   (:documentation "A database."))
 
 (defstruct (value (:constructor %make-value))
@@ -113,12 +118,14 @@
                  :environment environment
                  :parent parent))
 
-(defun make-database (environment name)
+(defun make-database (environment name
+                      &key (create t))
   "Create a database object."
   (make-instance 'database
                  :handle (cffi:foreign-alloc :pointer)
                  :environment environment
-                 :name name))
+                 :name name
+                 :create t))
 
 (defun convert-data (data)
   "Convert Lisp data to a format LMDB likes. Supported types are integers,
@@ -225,16 +232,24 @@ floats, booleans and strings. Returns a (size . array) pair."
 
 (defun open-database (database transaction)
   "Open a database in a transaction."
-  (let ((return-code (lmdb.low:dbi-open (handle transaction)
-                                        (database-name database)
-                                        0
-                                        (%handle database))))
-    (alexandria:switch (return-code)
-      (0
-       ;; Success
-       t)
-      (t
-       (error "Unknown error code: ~A" return-code))))
+  (with-slots (name create) database
+    (let ((return-code (lmdb.low:dbi-open (handle transaction)
+                                          name
+                                          (logior 0
+                                                  (if create
+                                                      lmdb.low:+create+
+                                                      0))
+                                          (%handle database))))
+      (alexandria:switch (return-code)
+        (0
+         ;; Success
+         t)
+        (lmdb.low:+notfound+
+         (error "Database not found, and did not specify :create t."))
+        (lmdb.low:+dbs-full+
+         (error "Reached maximum number of named databases."))
+        (t
+         (error "Unknown error code: ~A" return-code)))))
   database)
 
 ;;; Destructors

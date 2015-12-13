@@ -41,7 +41,10 @@
          (lmdb:begin-transaction txn))
         (let ((db))
           (finishes
-           (setf db (lmdb:make-database env "db")))
+           (setf db (lmdb:make-database env "db"
+                                        :create t)))
+          (is-true
+           (lmdb::database-create-p db))
           (finishes
            (lmdb:open-database db txn))))))
   (clean))

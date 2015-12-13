@@ -49,7 +49,12 @@
            :documentation "The pointer to the environment handle pointer.")
    (directory :reader environment-directory
               :initarg :directory
-              :documentation "The directory where environment files are stored."))
+              :documentation "The directory where environment files are stored.")
+   (max-databases :reader environment-max-dbs
+                  :initarg :max-dbs
+                  :initform 1
+                  :type integer
+                  :documentation "The maximum number of named databases."))
   (:documentation "Environment handle."))
 
 (defclass transaction ()
@@ -70,6 +75,10 @@
   ((handle :reader %handle
            :initarg :handle
            :documentation "The DBI handle.")
+   (env :reader database-environment
+        :initarg :environment
+        :type environment
+        :documentation "The environment this database belongs to.")
    (name :reader database-name
          :initarg :name
          :type string
@@ -83,14 +92,18 @@
 
 ;;; Constructors
 
-(defun make-environment (directory)
+(defun make-environment (directory &key (max-databases 1))
   "Create an environment object."
   (let ((instance (make-instance 'environment
                                  :handle (cffi:foreign-alloc :pointer)
-                                 :directory directory)))
+                                 :directory directory
+                                 :max-dbs max-databases)))
     (unless (= (lmdb.low:env-create (%handle instance))
                0)
       (error "Error creating environment object."))
+    ;; Set the maximum number of databases
+    (lmdb.low:env-set-maxdbs (handle instance)
+                             (environment-max-dbs instance))
     instance))
 
 (defun make-transaction (environment &optional parent)
@@ -100,10 +113,11 @@
                  :environment environment
                  :parent parent))
 
-(defun make-database (name)
+(defun make-database (environment name)
   "Create a database object."
   (make-instance 'database
                  :handle (cffi:foreign-alloc :pointer)
+                 :environment environment
                  :name name))
 
 (defun convert-data (data)
@@ -227,8 +241,8 @@ floats, booleans and strings. Returns a (size . array) pair."
 
 (defun free-environment (environment)
   "Free the environment."
-  (cffi:foreign-free (%handle environment))
-  (lmdb.low:env-close (handle environment)))
+  (lmdb.low:env-close (handle environment))
+  (cffi:foreign-free (%handle environment)))
 
 ;;; Macros
 

@@ -76,6 +76,11 @@
          :documentation "The database name."))
   (:documentation "A database."))
 
+(defstruct (value (:constructor %make-value))
+  "A value is a generic representation of keys and values."
+  (size 0 :type fixnum)
+  data)
+
 ;;; Constructors
 
 (defun make-environment (directory)
@@ -100,6 +105,28 @@
   (make-instance 'database
                  :handle (cffi:foreign-alloc :pointer)
                  :name name))
+
+(defun convert-data (data)
+  "Convert Lisp data to a format LMDB likes. Supported types are integers,
+floats, booleans and strings. Returns a (size . array) pair."
+  (typecase data
+    (integer
+     (let ((octets (bit-smasher:int->octets data)))
+       (cons (length octets) octets)))
+    (boolean
+     (cons 1 (if data 1 0)))
+    (string
+     (let ((octets (trivial-utf-8:string-to-utf-8-bytes data)))
+       (cons (length octets) octets)))
+    (t
+     (error "Invalid type."))))
+
+(defun make-value (data)
+  "Create a value object."
+  (destructuring-bind (size . vector)
+      (convert-data data)
+    (%make-value :size size
+                 :data data)))
 
 ;;; Viscera
 

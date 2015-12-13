@@ -7,7 +7,9 @@
   :bug-tracker ""
   :source-control (:git "")
   :depends-on (:cffi
-               :alexandria)
+               :alexandria
+               :bit-smasher
+               :trivial-utf-8)
   :components ((:module "src"
                 :serial t
                 :components

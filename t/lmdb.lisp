@@ -49,5 +49,20 @@
            (lmdb:open-database db txn))))))
   (clean))
 
+(test value
+  (loop for val in (list 1
+                         123
+                         -100000000
+                         "string"
+                         "string with unicode 㐎 㐏 㐐 㐑 㐒 㐓 㐔")
+        do
+    (let ((value (lmdb:make-value val)))
+      (is-true
+       (lmdb:value-p value))
+      (is-true
+       (integerp (lmdb:value-size value)))
+      (is-true
+       (vectorp (lmdb:value-data value))))))
+
 (defun run-tests ()
   (run! 'tests))

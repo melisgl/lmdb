@@ -50,6 +50,15 @@
             (lmdb:close-database db))))))
   (clean))
 
+#|
+(test memory-leaks
+  (finishes
+    (dotimes (i 1000000)
+      (let ((env (lmdb:make-environment +env-directory+)))
+        (lmdb:open-environment env)
+        (lmdb:close-environment env)))))
+|#
+
 (test value
   (loop for val in (list 1
                          123

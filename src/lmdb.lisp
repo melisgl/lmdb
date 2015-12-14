@@ -258,6 +258,34 @@ floats, booleans and strings. Returns a (size . array) pair."
          (error "Unknown error code: ~A" return-code)))))
   database)
 
+;;; Querying
+
+(defmacro with-key ((key data) &body body)
+  (let ((value (gensym)))
+    `(cffi:with-foreign-object (,key '(:struct lmdb.low:val))
+       (let ((,value (make-value ,data)))
+         (setf (cffi:foreign-slot-value ,key '(:struct lmdb.low:val) 'lmdb.low:mv-size)
+               (value-size ,value))
+         (setf (cffi:foreign-slot-value ,key '(:struct lmdb.low:val) 'lmdb.low:mv-data)
+               (value-data ,value))
+         ,@body))))
+
+(defmacro with-value ((value) &body body)
+  `(cffi:with-foreign-object (,value '(:struct lmdb.low:val))
+     ,@body))
+
+(defun get-value (database key)
+  "Get a value from the database."
+  (with-slots (transaction) database
+    (with-key (raw-key key)
+      (with-value (raw-value)
+        (let ((return-code (lmdb.low:get (handle transaction)
+                                         (handle database)
+                                         raw-key
+                                         raw-value)))
+          return-code)))))
+
+
 ;;; Destructors
 
 (defun close-environment (environment)

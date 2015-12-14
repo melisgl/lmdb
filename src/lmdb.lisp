@@ -1,6 +1,7 @@
 (in-package :cl-user)
 (defpackage lmdb
   (:use :cl)
+  (:shadow :get)
   (:export :version-string
            :environment
            :make-environment
@@ -20,10 +21,10 @@
            :open-database
            :close-database
            :with-database
-           :make-value
-           :value-p
-           :value-size
-           :value-data)
+           :cursor
+           :make-cursor
+           :get
+           :put)
   (:documentation "The high-level LMDB interface."))
 (in-package :lmdb)
 
@@ -52,7 +53,7 @@
 (defclass environment ()
   ((handle :reader %handle
            :initarg :handle
-           :documentation "The pointer to the environment handle pointer.")
+           :documentation "The pointer to the environment handle.")
    (directory :reader environment-directory
               :initarg :directory
               :documentation "The directory where environment files are stored.")
@@ -66,7 +67,7 @@
 (defclass transaction ()
   ((handle :reader %handle
            :initarg :handle
-           :documentation "The pointer to the transaction environment.")
+           :documentation "The pointer to the transaction.")
    (env :reader transaction-environment
         :initarg :environment
         :type environment
@@ -101,6 +102,16 @@
   (size 0 :type fixnum)
   data)
 
+(defclass cursor ()
+  ((handle :reader %handle
+           :initarg :handle
+           :documentation "The pointer to the cursor object.")
+  ( database :reader cursor-database
+             :initarg :database
+             :type database
+             :documentation "The database the cursor belongs to."))
+  (:documentation "A cursor."))
+
 ;;; Constructors
 
 (defun make-environment (directory &key (max-databases 1))
@@ -131,7 +142,7 @@
                  :handle (cffi:foreign-alloc :pointer)
                  :transaction transaction
                  :name name
-                 :create t))
+                 :create create))
 
 (defun convert-data (data)
   "Convert Lisp data to a format LMDB likes. Supported types are integers,
@@ -154,6 +165,12 @@ floats, booleans and strings. Returns a (size . array) pair."
       (convert-data data)
     (%make-value :size size
                  :data vector)))
+
+(defun make-cursor (transaction)
+  "Create a cursor object."
+  (make-instance 'cursor
+                 :handle (cffi:foreign-alloc :pointer)
+                 :transaction transaction))
 
 ;;; Viscera
 
@@ -258,33 +275,101 @@ floats, booleans and strings. Returns a (size . array) pair."
          (error "Unknown error code: ~A" return-code)))))
   database)
 
+(defun open-cursor (cursor)
+  "Open a cursor."
+  (with-slots (transaction) cursor
+    (with-slots (database) transaction
+      (let ((return-code (lmdb.low:cursor-open (handle transaction)
+                                               (handle database)
+                                               (%handle cursor))))
+        (alexandria:switch (return-code)
+          (0
+           ;; Success
+           t)
+          (22
+           (error "Invalid parameter."))
+          (t
+           (error "Unknown error code: ~A" return-code))))))
+  cursor)
+
 ;;; Querying
 
-(defmacro with-key ((key data) &body body)
-  (let ((value (gensym)))
-    `(cffi:with-foreign-object (,key '(:struct lmdb.low:val))
-       (let ((,value (make-value ,data)))
-         (setf (cffi:foreign-slot-value ,key '(:struct lmdb.low:val) 'lmdb.low:mv-size)
-               (value-size ,value))
-         (setf (cffi:foreign-slot-value ,key '(:struct lmdb.low:val) 'lmdb.low:mv-data)
-               (value-data ,value))
-         ,@body))))
+(defmacro with-val ((raw-value data) &body body)
+  (alexandria:with-gensyms (value-struct array)
+    `(let* ((,value-struct (make-value ,data))
+            (,raw-value (cffi:foreign-alloc '(:struct lmdb.low:val)))
+            (,array (cffi:foreign-alloc :unsigned-char
+                                        :count (value-size ,value-struct))))
+       (setf (cffi:foreign-slot-value ,raw-value
+                                      '(:struct lmdb.low:val)
+                                      'lmdb.low:mv-size)
+             (cffi:make-pointer (value-size ,value-struct)))
 
-(defmacro with-value ((value) &body body)
+       (loop for elem across (value-data ,value-struct)
+             for i from 0 to (1- (length (value-data ,value-struct)))
+             do
+                (setf (cffi:mem-aref ,array :unsigned-char i)
+                      elem))
+       (setf (cffi:foreign-slot-value ,raw-value
+                                      '(:struct lmdb.low:val)
+                                      'lmdb.low:mv-data)
+             ,array)
+       ,@body)))
+
+(defmacro with-empty-value ((value) &body body)
   `(cffi:with-foreign-object (,value '(:struct lmdb.low:val))
      ,@body))
 
-(defun get-value (database key)
+(defun raw-value-to-vector (raw-value)
+  (let* ((size (cffi:pointer-address
+                (cffi:foreign-slot-value raw-value
+                                         '(:struct lmdb.low:val)
+                                         'lmdb.low:mv-size)))
+         (array (cffi:foreign-slot-value raw-value
+                                         '(:struct lmdb.low:val)
+                                         'lmdb.low:mv-data))
+         (vec (make-array size
+                          :element-type '(unsigned-byte 8))))
+    (loop for i from 0 to (1- size) do
+      (setf (elt vec i)
+            (cffi:mem-aref array :unsigned-int i)))
+    vec))
+
+(defun get (database key)
   "Get a value from the database."
   (with-slots (transaction) database
-    (with-key (raw-key key)
-      (with-value (raw-value)
+    (with-val (raw-key key)
+      (with-empty-value (raw-value)
         (let ((return-code (lmdb.low:get (handle transaction)
                                          (handle database)
                                          raw-key
                                          raw-value)))
-          return-code)))))
+          (alexandria:switch (return-code)
+            (0
+             ;; Success
+             (raw-value-to-vector raw-value))
+            (lmdb.low:+notfound+
+             (error "Key not found: ~A." key))
+            (t
+             (error "Unknown error code."))))))))
 
+(defun put (database key value)
+  "Add a value to the database."
+  (with-slots (transaction) database
+    (with-val (raw-key key)
+      (with-val (raw-val value)
+        (let ((return-code (lmdb.low:put (handle transaction)
+                                         (handle database)
+                                         raw-key
+                                         raw-val
+                                         0)))
+          (alexandria:switch (return-code)
+            (0
+             ;; Success
+             )
+            (t
+             (error "Unknown error code: ~A" return-code)))))))
+  value)
 
 ;;; Destructors
 
@@ -298,8 +383,7 @@ floats, booleans and strings. Returns a (size . array) pair."
   (lmdb.low:dbi-close (handle
                        (transaction-environment
                         (database-transaction database)))
-                      (cffi:pointer-address
-                       (handle database)))
+                      (handle database))
   (cffi:foreign-free (%handle database)))
 
 ;;; Macros
@@ -318,7 +402,7 @@ floats, booleans and strings. Returns a (size . array) pair."
      (open-database ,database)
      (unwind-protect
           (progn ,@body)
-       (close-environment ,database))))
+       (close-database ,database))))
 
 ;;; Utilities
 

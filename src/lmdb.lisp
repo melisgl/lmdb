@@ -18,6 +18,8 @@
            :database
            :make-database
            :open-database
+           :close-database
+           :with-database
            :make-value
            :value-p
            :value-size
@@ -263,14 +265,32 @@ floats, booleans and strings. Returns a (size . array) pair."
   (lmdb.low:env-close (handle environment))
   (cffi:foreign-free (%handle environment)))
 
+(defun close-database (database)
+  "Close the database."
+  (lmdb.low:dbi-close (handle
+                       (transaction-environment
+                        (database-transaction database)))
+                      (cffi:pointer-address
+                       (handle database)))
+  (cffi:foreign-free (%handle database)))
+
 ;;; Macros
 
 (defmacro with-environment ((env) &body body)
-  "Free the environment when the body is over."
+  "Execute the body and close the environment."
   `(progn
+     (open-environment ,env)
      (unwind-protect
           (progn ,@body)
        (close-environment ,env))))
+
+(defmacro with-database ((database) &body body)
+  "Execute the body and close the database."
+  `(progn
+     (open-database ,database)
+     (unwind-protect
+          (progn ,@body)
+       (close-environment ,database))))
 
 ;;; Utilities
 

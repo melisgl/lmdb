@@ -18,13 +18,14 @@
   (let ((env))
     (finishes
       (setf env (lmdb:make-environment +env-directory+)))
-    (lmdb:with-environment (env)
-      (finishes
-       (lmdb:open-environment env))
-      (finishes
-       (lmdb:environment-statistics env))
-      (finishes
-       (lmdb:environment-info env))))
+    (finishes
+      (lmdb:open-environment env))
+    (finishes
+      (lmdb:environment-statistics env))
+    (finishes
+      (lmdb:environment-info env))
+    (finishes
+      (lmdb:close-environment env)))
   (clean))
 
 (test database
@@ -32,8 +33,6 @@
     (finishes
       (setf env (lmdb:make-environment +env-directory+)))
     (lmdb:with-environment (env)
-      (finishes
-       (lmdb:open-environment env))
       (let ((txn))
         (finishes
          (setf txn (lmdb:make-transaction env)))
@@ -46,7 +45,9 @@
           (is-true
            (lmdb::database-create-p db))
           (finishes
-           (lmdb:open-database db))))))
+            (lmdb:open-database db))
+          (finishes
+            (lmdb:close-database db))))))
   (clean))
 
 (test value

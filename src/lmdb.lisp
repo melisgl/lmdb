@@ -24,7 +24,8 @@
            :cursor
            :make-cursor
            :get
-           :put)
+           :put
+           :del)
   (:documentation "The high-level LMDB interface."))
 (in-package :lmdb)
 
@@ -370,6 +371,26 @@ floats, booleans and strings. Returns a (size . array) pair."
             (t
              (error "Unknown error code: ~A" return-code)))))))
   value)
+
+(defun del (database key &optional data)
+  "Delete this key from the database."
+  (with-slots (transaction) database
+    (with-val (raw-key key)
+      (with-empty-value (raw-value)
+        (let ((return-code (lmdb.low:del (handle transaction)
+                                         (handle database)
+                                         raw-key
+                                         (if data
+                                             data
+                                             (cffi:null-pointer)))))
+          (alexandria:switch (return-code)
+            (0
+             ;; Success
+             key)
+            (+eacces+
+             (error "An attempt was made to delete a key in a read-only transaction."))
+            (t
+             (error "Unknown error code."))))))))
 
 ;;; Destructors
 

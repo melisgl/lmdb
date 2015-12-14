@@ -99,7 +99,9 @@
               (lmdb:put db 1 2))
             (let ((vec (lmdb:get db 1)))
               (is (equal (length vec) 1))
-              (is (equal (elt vec 0) 2)))))))))
+              (is (equal (elt vec 0) 2)))
+            (finishes
+              (lmdb:del db 1))))))))
 
 (defun run-tests ()
   (run! 'tests))

@@ -7,7 +7,7 @@
            :open-environment
            :environment-statistics
            :environment-info
-           :free-environment
+           :close-environment
            :with-environment
            :transaction
            :transaction-environment
@@ -258,7 +258,7 @@ floats, booleans and strings. Returns a (size . array) pair."
 
 ;;; Destructors
 
-(defun free-environment (environment)
+(defun close-environment (environment)
   "Free the environment."
   (lmdb.low:env-close (handle environment))
   (cffi:foreign-free (%handle environment)))
@@ -270,7 +270,7 @@ floats, booleans and strings. Returns a (size . array) pair."
   `(progn
      (unwind-protect
           (progn ,@body)
-       (free-environment ,env))))
+       (close-environment ,env))))
 
 ;;; Utilities
 

@@ -79,10 +79,10 @@
   ((handle :reader %handle
            :initarg :handle
            :documentation "The DBI handle.")
-   (env :reader database-environment
-        :initarg :environment
-        :type environment
-        :documentation "The environment this database belongs to.")
+   (transaction :reader database-transaction
+                :initarg :transaction
+                :type transaction
+                :documentation "The transaction this database belongs to.")
    (name :reader database-name
          :initarg :name
          :type string
@@ -122,12 +122,12 @@
                  :environment environment
                  :parent parent))
 
-(defun make-database (environment name
+(defun make-database (transaction name
                       &key (create t))
   "Create a database object."
   (make-instance 'database
                  :handle (cffi:foreign-alloc :pointer)
-                 :environment environment
+                 :transaction transaction
                  :name name
                  :create t))
 
@@ -234,9 +234,9 @@ floats, booleans and strings. Returns a (size . array) pair."
   "Abort the transaction."
   (lmdb.low:txn-abort (handle transaction)))
 
-(defun open-database (database transaction)
-  "Open a database in a transaction."
-  (with-slots (name create) database
+(defun open-database (database)
+  "Open a database."
+  (with-slots (transaction name create) database
     (let ((return-code (lmdb.low:dbi-open (handle transaction)
                                           name
                                           (logior 0

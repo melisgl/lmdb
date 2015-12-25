@@ -21,6 +21,9 @@
   ;; Macros
   (:export :with-environment
            :with-database)
+  ;; Errors
+  (:export :lmdb-error
+           :not-found)
   ;; Methods
   (:export :version-string
            :environment-statistics
@@ -344,8 +347,9 @@ floats, booleans and strings. Returns a (size . array) pair."
          (vec (make-array size
                           :element-type '(unsigned-byte 8))))
     (loop for i from 0 to (1- size) do
+      (print (cffi:mem-aref array :unsigned-char i))
       (setf (elt vec i)
-            (cffi:mem-aref array :unsigned-int i)))
+            (cffi:mem-aref array :unsigned-char i)))
     vec))
 
 (defun get (database key)
@@ -360,9 +364,9 @@ floats, booleans and strings. Returns a (size . array) pair."
           (alexandria:switch (return-code)
             (0
              ;; Success
-             (raw-value-to-vector raw-value))
+             (values (raw-value-to-vector raw-value) t))
             (lmdb.low:+notfound+
-             (error "Key not found: ~A." key))
+             (values nil nil))
             (t
              (error "Unknown error code."))))))))
 

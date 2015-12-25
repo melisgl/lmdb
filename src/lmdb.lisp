@@ -347,7 +347,6 @@ floats, booleans and strings. Returns a (size . array) pair."
          (vec (make-array size
                           :element-type '(unsigned-byte 8))))
     (loop for i from 0 to (1- size) do
-      (print (cffi:mem-aref array :unsigned-char i))
       (setf (elt vec i)
             (cffi:mem-aref array :unsigned-char i)))
     vec))

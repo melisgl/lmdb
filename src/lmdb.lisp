@@ -158,7 +158,7 @@ floats, booleans and strings. Returns a (size . array) pair."
      (let ((octets (trivial-utf-8:string-to-utf-8-bytes data)))
        (cons (length octets) octets)))
     ((vector (unsigned-byte 8))
-     data)
+     (cons (length data) data))
     (t
      (error "Invalid type."))))
 

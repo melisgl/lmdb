@@ -2,25 +2,29 @@
 (defpackage lmdb
   (:use :cl)
   (:shadow :get)
-  (:export :version-string
-           :environment
+  ;; Classes
+  (:export :environment
            :make-environment
-           :open-environment
-           :environment-statistics
-           :environment-info
-           :close-environment
-           :with-environment
            :transaction
            :transaction-environment
            :transaction-parent
            :make-transaction
+           :database
+           :make-database)
+  ;; Lifecycle
+  (:export :open-environment
+           :close-environment
            :begin-transaction
            :commit-transaction
-           :database
-           :make-database
            :open-database
-           :close-database
-           :with-database
+           :close-database)
+  ;; Macros
+  (:export :with-environment
+           :with-database)
+  ;; Methods
+  (:export :version-string
+           :environment-statistics
+           :environment-info
            :cursor
            :make-cursor
            :get
@@ -174,6 +178,12 @@ floats, booleans and strings. Returns a (size . array) pair."
   (make-instance 'cursor
                  :handle (cffi:foreign-alloc :pointer)
                  :transaction transaction))
+
+;;; Errors
+
+(define-condition lmdb-error ()
+  ()
+  (:documentation "The base class of all LMDB errors."))
 
 ;;; Viscera
 

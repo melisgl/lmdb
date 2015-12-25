@@ -8,8 +8,8 @@
   :source-control (:git "")
   :depends-on (:cffi
                :alexandria
-               :bit-smasher
-               :trivial-utf-8)
+               :trivial-utf-8
+               :bit-smasher)
   :components ((:module "src"
                 :serial t
                 :components

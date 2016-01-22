@@ -10,29 +10,33 @@
            :transaction-parent
            :make-transaction
            :database
-           :make-database)
+           :make-database
+           :cursor
+           :make-cursor)
   ;; Lifecycle
   (:export :open-environment
            :close-environment
            :begin-transaction
            :commit-transaction
            :open-database
-           :close-database)
+           :close-database
+           :open-cursor
+           :close-cursor)
   ;; Macros
   (:export :with-environment
-           :with-database)
+           :with-database
+           :with-cursor
+           :do-pairs)
   ;; Errors
-  (:export :lmdb-error
-           :not-found)
+  (:export :lmdb-error)
   ;; Methods
   (:export :version-string
            :environment-statistics
            :environment-info
-           :cursor
-           :make-cursor
            :get
            :put
-           :del)
+           :del
+           :cursor-get)
   (:documentation "The high-level LMDB interface."))
 (in-package :lmdb)
 
@@ -83,7 +87,7 @@
    (parent :reader transaction-parent
            :initarg :parent
            :type (or transaction null)
-           :documentation "The parent transaction."))
+           :documentation "The parent transaction, if any."))
   (:documentation "A transaction."))
 
 (defclass database ()
@@ -114,7 +118,7 @@
   ((handle :reader %handle
            :initarg :handle
            :documentation "The pointer to the cursor object.")
-  ( database :reader cursor-database
+   (database :reader cursor-database
              :initarg :database
              :type database
              :documentation "The database the cursor belongs to."))
@@ -123,7 +127,9 @@
 ;;; Constructors
 
 (defun make-environment (directory &key (max-databases 1))
-  "Create an environment object."
+  "Create an environment object.
+
+Before an environment can be used, it must be opened with @c(open-environment)."
   (let ((instance (make-instance 'environment
                                  :handle (cffi:foreign-alloc :pointer)
                                  :directory directory
@@ -156,16 +162,16 @@
   "Convert Lisp data to a format LMDB likes. Supported types are integers,
 floats, booleans and strings. Returns a (size . array) pair."
   (typecase data
+    (string
+     (let ((octets (trivial-utf-8:string-to-utf-8-bytes data)))
+       (cons (length octets) octets)))
+    (vector
+     (cons (length data) data))
     (integer
      (let ((octets (bit-smasher:int->octets data)))
        (cons (length octets) octets)))
     (boolean
      (cons 1 (if data 1 0)))
-    (string
-     (let ((octets (trivial-utf-8:string-to-utf-8-bytes data)))
-       (cons (length octets) octets)))
-    ((vector (unsigned-byte 8))
-     (cons (length data) data))
     (t
      (error "Invalid type."))))
 
@@ -176,17 +182,22 @@ floats, booleans and strings. Returns a (size . array) pair."
     (%make-value :size size
                  :data vector)))
 
-(defun make-cursor (transaction)
+(defun make-cursor (database)
   "Create a cursor object."
   (make-instance 'cursor
                  :handle (cffi:foreign-alloc :pointer)
-                 :transaction transaction))
+                 :database database))
 
 ;;; Errors
 
 (define-condition lmdb-error ()
   ()
   (:documentation "The base class of all LMDB errors."))
+
+(defun unknown-error (error-code)
+  (error "Unknown error code: ~A. Result from strerror(): ~A"
+         error-code
+         (lmdb.low:strerror error-code)))
 
 ;;; Viscera
 
@@ -195,7 +206,14 @@ floats, booleans and strings. Returns a (size . array) pair."
   (cffi:mem-ref (%handle object) :pointer))
 
 (defun open-environment (environment)
-  "Open the environment connection."
+  "Open the environment connection.
+
+@begin(deflist)
+@term(Thread Safety)
+
+@def(No special considerations.)
+
+@end(deflist)"
   (with-slots (directory) environment
     (assert (uiop:directory-pathname-p directory))
     (ensure-directories-exist directory)
@@ -218,7 +236,7 @@ floats, booleans and strings. Returns a (size . array) pair."
          ;; Success
          )
         (t
-         (error "Unknown error code: ~A" return-code)))))
+         (unknown-error return-code)))))
   environment)
 
 (defun environment-statistics (environment)
@@ -245,7 +263,14 @@ floats, booleans and strings. Returns a (size . array) pair."
             :map-size (cffi:pointer-address (slot lmdb.low:me-mapsize))))))
 
 (defun begin-transaction (transaction)
-  "Begin the transaction."
+  "Begin the transaction.
+
+@begin(deflist)
+@term(Thread Safety)
+
+@def(A transaction may only be used by a single thread.)
+
+@end(deflist)"
   (with-slots (env parent) transaction
     (let ((return-code (lmdb.low:txn-begin (handle env)
                                            (if parent
@@ -256,21 +281,52 @@ floats, booleans and strings. Returns a (size . array) pair."
       (alexandria:switch (return-code)
         (0
          ;; Success
-         )
+         t)
         ;; TODO rest
         (t
-         (error "Unknown error code."))))))
+         (unknown-error return-code))))))
 
 (defun commit-transaction (transaction)
-  "Commit the transaction."
-  (lmdb.low:txn-commit (handle transaction)))
+  "Commit the transaction. The transaction pointer is freed.
+
+@begin(deflist)
+@term(Thread Safety)
+
+@def(The LMDB documentation doesn't say specifically, but assume it can only be
+called by the transaction-creating thread.)
+
+@end(deflist)"
+  (let ((return-code (lmdb.low:txn-commit (handle transaction))))
+    (alexandria:switch (return-code :test #'=)
+      (0
+       ;; Success
+       t)
+      (t
+       (unknown-error return-code)))))
 
 (defun abort-transaction (transaction)
-  "Abort the transaction."
+  "Abort the transaction. The transaction pointer is freed.
+
+@begin(deflist)
+@term(Thread Safety)
+
+@def(The LMDB documentation doesn't say specifically, but assume it can only be
+called by the transaction-creating thread.)
+
+@end(deflist)"
   (lmdb.low:txn-abort (handle transaction)))
 
 (defun open-database (database)
-  "Open a database."
+  "Open a database.
+
+@begin(deflist)
+@term(Thread Safety)
+
+@def(A transaction that opens a database must finish (either commit or abort)
+before another transaction may open it. Multiple concurrent transactions cannot
+open the same database.)
+
+@end(deflist)"
   (with-slots (transaction name create) database
     (let ((return-code (lmdb.low:dbi-open (handle transaction)
                                           name
@@ -288,13 +344,13 @@ floats, booleans and strings. Returns a (size . array) pair."
         (lmdb.low:+dbs-full+
          (error "Reached maximum number of named databases."))
         (t
-         (error "Unknown error code: ~A" return-code)))))
+         (unknown-error return-code)))))
   database)
 
 (defun open-cursor (cursor)
   "Open a cursor."
-  (with-slots (transaction) cursor
-    (with-slots (database) transaction
+  (with-slots (database) cursor
+    (with-slots (transaction) database
       (let ((return-code (lmdb.low:cursor-open (handle transaction)
                                                (handle database)
                                                (%handle cursor))))
@@ -305,7 +361,7 @@ floats, booleans and strings. Returns a (size . array) pair."
           (22
            (error "Invalid parameter."))
           (t
-           (error "Unknown error code: ~A" return-code))))))
+           (unknown-error return-code))))))
   cursor)
 
 ;;; Querying
@@ -367,7 +423,7 @@ floats, booleans and strings. Returns a (size . array) pair."
             (lmdb.low:+notfound+
              (values nil nil))
             (t
-             (error "Unknown error code."))))))))
+             (unknown-error return-code))))))))
 
 (defun put (database key value)
   "Add a value to the database."
@@ -382,50 +438,113 @@ floats, booleans and strings. Returns a (size . array) pair."
           (alexandria:switch (return-code)
             (0
              ;; Success
-             )
+             t)
             (t
-             (error "Unknown error code: ~A" return-code)))))))
+             (unknown-error return-code)))))))
   value)
 
 (defun del (database key &optional data)
-  "Delete this key from the database."
+  "Delete this key from the database. Returns @c(t) if the key was found,
+@c(nil) otherwise."
   (with-slots (transaction) database
     (with-val (raw-key key)
+      (let ((return-code (lmdb.low:del (handle transaction)
+                                       (handle database)
+                                       raw-key
+                                       (if data
+                                           data
+                                           (cffi:null-pointer)))))
+        (alexandria:switch (return-code)
+          (0
+           ;; Success
+           t)
+          (lmdb.low:+notfound+
+           nil)
+          (+eacces+
+           (error "An attempt was made to delete a key in a read-only transaction."))
+          (t
+           (unknown-error return-code)))))))
+
+(defun cursor-get (cursor operation)
+  "Extract data using a cursor.
+
+The @cl:param(operation) argument specifies the operation."
+  (let ((op (case operation
+              (:first :+first+)
+              (:current :+current+)
+              (:last :+last+)
+              (:next :+next+)
+              (:prev :+prev+))))
+    (with-empty-value (raw-key)
       (with-empty-value (raw-value)
-        (let ((return-code (lmdb.low:del (handle transaction)
-                                         (handle database)
-                                         raw-key
-                                         (if data
-                                             data
-                                             (cffi:null-pointer)))))
+        (let ((return-code (lmdb.low:cursor-get (handle cursor)
+                                                raw-key
+                                                raw-value
+                                                op)))
           (alexandria:switch (return-code)
             (0
              ;; Success
-             key)
-            (+eacces+
-             (error "An attempt was made to delete a key in a read-only transaction."))
+             (values (raw-value-to-vector raw-key)
+                     (raw-value-to-vector raw-value)))
+            (lmdb.low:+notfound+
+             (values nil nil))
             (t
-             (error "Unknown error code."))))))))
+             (unknown-error return-code))))))))
 
 ;;; Destructors
 
 (defun close-environment (environment)
-  "Free the environment."
+  "Close the environment connection and free the memory.
+
+@begin(deflist)
+@term(Thread Safety)
+
+@def(Only a single thread may call this function. All environment-dependent
+objects, such as transactions and databases, must be closed before calling this
+function. Attempts to use those objects are closing the environment will result
+in a segmentation fault.)
+
+@end(deflist)"
   (lmdb.low:env-close (handle environment))
   (cffi:foreign-free (%handle environment)))
 
 (defun close-database (database)
-  "Close the database."
+  "Close the database.
+
+@begin(deflist)
+@term(Thread Safety)
+
+@def(Despair.
+
+From the LMDB documentation,
+
+@quote(This call is not mutex protected. Handles should only be closed by a
+single thread, and only if no other threads are going to reference the database
+handle or one of its cursors any further. Do not close a handle if an existing
+transaction has modified its database. Doing so can cause misbehavior from
+database corruption to errors like MDB_BAD_VALSIZE (since the DB name is
+gone).))
+
+@end(deflist)"
   (lmdb.low:dbi-close (handle
                        (transaction-environment
                         (database-transaction database)))
                       (handle database))
   (cffi:foreign-free (%handle database)))
 
+(defun close-cursor (cursor)
+  "Close a cursor."
+  (with-slots (database) cursor
+    (with-slots (transaction) database
+      (lmdb.low:cursor-close (%handle cursor))
+      (cffi:foreign-free (%handle cursor))))
+  t)
+
 ;;; Macros
 
 (defmacro with-environment ((env) &body body)
-  "Execute the body and close the environment."
+  "Open the @cl:param(env), execute @cl:param(body) and ensure the environment
+is closed."
   `(progn
      (open-environment ,env)
      (unwind-protect
@@ -439,6 +558,28 @@ floats, booleans and strings. Returns a (size . array) pair."
      (unwind-protect
           (progn ,@body)
        (close-database ,database))))
+
+(defmacro with-cursor ((cursor) &body body)
+  "Execute the body and close the cursor."
+  `(progn
+     (open-cursor ,cursor)
+     (unwind-protect
+          (progn ,@body)
+       (close-cursor ,cursor))))
+
+(defmacro do-pairs ((db key value) &body body)
+  "Iterate over every key/value pair in the database."
+  (let ((cur (gensym)))
+    `(let ((,cur (make-cursor ,db)))
+       (with-cursor (,cur)
+         (multiple-value-bind (,key ,value)
+             (cursor-get ,cur :first)
+           (loop while ,key do
+             ,@body
+             (multiple-value-bind (tk tv)
+                 (cursor-get ,cur :next)
+               (setf ,key tk
+                     ,value tv))))))))
 
 ;;; Utilities
 

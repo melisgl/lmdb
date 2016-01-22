@@ -6,17 +6,15 @@
   :homepage ""
   :bug-tracker ""
   :source-control (:git "")
-  :depends-on (:cffi
+  :depends-on (:lmdb-low
                :alexandria
                :trivial-utf-8
                :bit-smasher)
   :components ((:module "src"
-                :serial t
                 :components
-                ((:file "package")
-                 (:file "lispify")
-                 (:file "wrapper")
-                 (:file "lmdb"))))
+                ((:module "high"
+                  :components
+                  ((:file "lmdb"))))))
   :description "Bindings to LMDB."
   :long-description
   #.(uiop:read-file-string

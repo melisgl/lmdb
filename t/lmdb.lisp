@@ -48,21 +48,10 @@
             (lmdb:close-database db))))))
   (clean))
 
-#|
-(test memory-leaks
-  (finishes
-    (dotimes (i 1000000)
-      (let ((env (lmdb:make-environment +env-directory+)))
-        (lmdb:open-environment env)
-        (lmdb:close-environment env)))))
-|#
-
 (test values
-  (loop for val in (list 1
-                         123
-                         -100000000
-                         "string"
-                         "string with unicode 㐎 㐏 㐐 㐑 㐒 㐓 㐔")
+  (loop for val in (list #(1)
+                         #(1 2 3)
+                         #(35 2 34 23))
         do
     (let ((value (lmdb::make-value val)))
       (is-true
@@ -87,21 +76,100 @@
                                  i)
                   (elt (lmdb::value-data value) i))))))))
 
+(defmacro with-query ((env db db-name) &body body)
+  (let ((txn (gensym)))
+    `(let ((,txn (lmdb:make-transaction ,env)))
+       (is-true
+        (lmdb:begin-transaction ,txn))
+       (let ((,db (lmdb:make-database ,txn ,db-name)))
+         (lmdb:with-database (,db)
+           ,@body
+           (is-true
+            (lmdb:commit-transaction ,txn)))))))
+
 (test queries
   (let ((env (lmdb:make-environment +env-directory+)))
     (lmdb:with-environment (env)
-      (let ((txn (lmdb:make-transaction env)))
+      (with-query (env db "db")
         (finishes
-          (lmdb:begin-transaction txn))
+          (lmdb:put db #(1) #(2)))
+        (finishes
+          (lmdb:put db #(2) #(3)))
+        (finishes
+          (lmdb:put db #(3) #(4)))
+        (is
+         (equalp (lmdb:get db #(1))
+                 #(2)))
+        (is
+         (equalp (lmdb:get db #(2))
+                 #(3)))
+        (is
+         (equalp (lmdb:get db #(3))
+                 #(4))))
+      (with-query (env db "db")
+        (is
+         (equalp (lmdb:get db #(1))
+                 #(2)))
+        (is
+         (equalp (lmdb:get db #(2))
+                 #(3)))
+        (is
+         (equalp (lmdb:get db #(3))
+                 #(4))))
+      (with-query (env db "db")
+        (is-true
+         (lmdb:del db #(1))))
+      (with-query (env db "db")
+        (is
+         (null (lmdb:get db #(1))))
+        (finishes
+          (lmdb:put db #(1) #(2)))))))
+
+(test cursors
+  (let ((env (lmdb:make-environment +env-directory+)))
+    (lmdb:with-environment (env)
+      (let ((txn (lmdb:make-transaction env)))
+        (is-true
+         (lmdb:begin-transaction txn))
         (let ((db (lmdb:make-database txn "db")))
           (lmdb:with-database (db)
-            (finishes
-              (lmdb:put db 1 2))
-            (let ((vec (lmdb:get db 1)))
-              (is (equal (length vec) 1))
-              (is (equal (elt vec 0) 2)))
-            (finishes
-              (lmdb:del db 1))))))))
+            (let ((cur (lmdb:make-cursor db)))
+              (lmdb:with-cursor (cur)
+                (multiple-value-bind (key value)
+                    (lmdb:cursor-get cur :first)
+                  (is
+                   (typep key 'vector))
+                  (is
+                   (typep value 'vector)))
+                (multiple-value-bind (key value)
+                    (lmdb:cursor-get cur :next)
+                  (is
+                   (typep key 'vector))
+                  (is
+                   (typep value 'vector))))
+              (lmdb:commit-transaction txn))))))))
+
+(test iteration
+  (let ((env (lmdb:make-environment +env-directory+)))
+    (lmdb:with-environment (env)
+      (let ((txn (lmdb:make-transaction env)))
+        (is-true
+         (lmdb:begin-transaction txn))
+        (let ((db (lmdb:make-database txn "db")))
+          (lmdb:with-database (db)
+            (let ((count 0))
+              (lmdb:do-pairs (db key value)
+                (is
+                 (typep key 'vector))
+                (is
+                 (typep value 'vector))
+                (incf count))
+              (is
+               (= count 3)))))
+        (is-true
+         (lmdb:commit-transaction txn))))))
 
 (defun run-tests ()
-  (run! 'tests))
+  (unwind-protect
+       (run! 'tests)
+    (uiop:delete-directory-tree +env-directory+ :validate t)))

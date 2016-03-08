@@ -18,6 +18,7 @@
            :close-environment
            :begin-transaction
            :commit-transaction
+           :abort-transaction
            :open-database
            :close-database
            :open-cursor

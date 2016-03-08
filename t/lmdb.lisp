@@ -171,5 +171,6 @@
 
 (defun run-tests ()
   (unwind-protect
-       (run! 'tests)
+       (dotimes (i 20)
+         (run! 'tests))
     (uiop:delete-directory-tree +env-directory+ :validate t)))

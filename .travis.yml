@@ -23,7 +23,6 @@ install:
 cache:
   directories:
     - $HOME/.roswell
-    - $HOME/.config/common-lisp
 
 before_script:
   - ros --version

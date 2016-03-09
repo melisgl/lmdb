@@ -10,6 +10,11 @@ env:
   matrix:
     - LISP=sbcl-bin COVERALLS=true
 
+addons:
+  apt:
+    packages:
+      - liblmdb0
+
 install:
   # Roswell & coveralls
   - curl -L https://raw.githubusercontent.com/snmsts/roswell/$ROSWELL_BRANCH/scripts/install-for-ci.sh | sh

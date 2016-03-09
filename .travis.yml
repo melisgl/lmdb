@@ -29,7 +29,7 @@ before_script:
   - ros config
 
 script:
-  - ros -e '(ql:quickload (list :fiveam :cl-coveralls))'
+  - ros -e '(ql:quickload (list :fiveam))'
         -e '(setf fiveam:*debug-on-error* t
                   fiveam:*debug-on-failure* t)'
         -e '(setf *debugger-hook*
@@ -38,8 +38,7 @@ script:
                     (print c)
                     (uiop:quit -1)))'
         -e '(ql:quickload :lmdb-test)'
-        -e '(coveralls:with-coveralls ()
-              (lmdb-test:run-tests))'
+        -e '(lmdb-test:run-tests)'
 
 notifications:
   email:

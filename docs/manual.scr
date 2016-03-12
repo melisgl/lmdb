@@ -1,0 +1,62 @@
+@begin(section)
+@title(Overview)
+
+LMDB is a fast key/value store.
+
+@end(section)
+
+@begin(section)
+@title(API Reference)
+
+@begin(section)
+@title(Environments)
+
+@cl:with-package[name="lmdb"](
+@cl:doc(class environment)
+@cl:doc(function make-environment)
+@cl:doc(function open-environment)
+@cl:doc(function close-environment)
+@cl:doc(macro with-environment)
+@cl:doc(function environment-statistics)
+@cl:doc(function environment-info)
+)
+
+@end(section)
+
+@begin(section)
+@title(Transactions)
+
+@cl:with-package[name="lmdb"](
+@cl:doc(class transaction)
+@cl:doc(function make-transaction)
+@cl:doc(function begin-transaction)
+@cl:doc(function commit-transaction)
+)
+
+@end(section)
+
+@begin(section)
+@title(Databases)
+
+@cl:with-package[name="lmdb"](
+@cl:doc(class database)
+@cl:doc(function make-database)
+@cl:doc(function open-database)
+@cl:doc(function close-database)
+@cl:doc(macro with-database)
+)
+
+@end(section)
+
+@begin(section)
+@title(Queries)
+
+@cl:with-package[name="lmdb"](
+@cl:doc(function get)
+@cl:doc(function put)
+@cl:doc(function del)
+)
+
+@end(section)
+
+@end(section)

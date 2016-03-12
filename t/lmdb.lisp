@@ -64,14 +64,14 @@
         (is
          (equal (cffi:pointer-address
                  (cffi:foreign-slot-value raw-val
-                                          '(:struct lmdb.low:val)
-                                          'lmdb.low:mv-size))
+                                          '(:struct liblmdb:val)
+                                          'liblmdb:mv-size))
                 (lmdb::value-size value)))
         (loop for i from 0 to (1- (lmdb::value-size value)) do
           (is
            (equal (cffi:mem-aref (cffi:foreign-slot-value raw-val
-                                                          '(:struct lmdb.low:val)
-                                                          'lmdb.low:mv-data)
+                                                          '(:struct liblmdb:val)
+                                                          'liblmdb:mv-data)
                                  :unsigned-char
                                  i)
                   (elt (lmdb::value-data value) i))))))))

@@ -135,11 +135,11 @@ Before an environment can be used, it must be opened with @c(open-environment)."
                                  :handle (cffi:foreign-alloc :pointer)
                                  :directory directory
                                  :max-dbs max-databases)))
-    (unless (= (lmdb.low:env-create (%handle instance))
+    (unless (= (liblmdb:env-create (%handle instance))
                0)
       (error "Error creating environment object."))
     ;; Set the maximum number of databases
-    (lmdb.low:env-set-maxdbs (handle instance)
+    (liblmdb:env-set-maxdbs (handle instance)
                              (environment-max-dbs instance))
     instance))
 
@@ -198,7 +198,7 @@ floats, booleans and strings. Returns a (size . array) pair."
 (defun unknown-error (error-code)
   (error "Unknown error code: ~A. Result from strerror(): ~A"
          error-code
-         (lmdb.low:strerror error-code)))
+         (liblmdb:strerror error-code)))
 
 ;;; Viscera
 
@@ -218,14 +218,14 @@ floats, booleans and strings. Returns a (size . array) pair."
   (with-slots (directory) environment
     (assert (uiop:directory-pathname-p directory))
     (ensure-directories-exist directory)
-    (let ((return-code (lmdb.low:env-open (handle environment)
+    (let ((return-code (liblmdb:env-open (handle environment)
                                           (namestring directory)
                                           0
                                           (cffi:make-pointer +permissions+))))
       (alexandria:switch (return-code)
-        (lmdb.low:+version-mismatch+
+        (liblmdb:+version-mismatch+
          (error "Version mismatch: the client version is different from the environment version."))
-        (lmdb.low:+invalid+
+        (liblmdb:+invalid+
          (error "Data corruption: the environment header files are corrupted."))
         (+enoent+
          (error "The environment directory doesn't exist."))
@@ -242,26 +242,26 @@ floats, booleans and strings. Returns a (size . array) pair."
 
 (defun environment-statistics (environment)
   "Return statistics about the environment."
-  (cffi:with-foreign-object (stat '(:struct lmdb.low:stat))
-    (lmdb.low:env-stat (handle environment)
+  (cffi:with-foreign-object (stat '(:struct liblmdb:stat))
+    (liblmdb:env-stat (handle environment)
                        stat)
     (macrolet ((slot (slot)
                  `(cffi:foreign-slot-value stat
-                                           '(:struct lmdb.low:stat)
+                                           '(:struct liblmdb:stat)
                                            ',slot)))
-      (list :page-size (slot lmdb.low:ms-psize)))))
+      (list :page-size (slot liblmdb:ms-psize)))))
 
 (defun environment-info (environment)
   "Return information about the environment."
-  (cffi:with-foreign-object (info '(:struct lmdb.low:envinfo))
-    (lmdb.low:env-info (handle environment)
+  (cffi:with-foreign-object (info '(:struct liblmdb:envinfo))
+    (liblmdb:env-info (handle environment)
                        info)
     (macrolet ((slot (slot)
                  `(cffi:foreign-slot-value info
-                                           '(:struct lmdb.low:envinfo)
+                                           '(:struct liblmdb:envinfo)
                                            ',slot)))
-      (list :map-address (cffi:pointer-address (slot lmdb.low:me-mapaddr))
-            :map-size (cffi:pointer-address (slot lmdb.low:me-mapsize))))))
+      (list :map-address (cffi:pointer-address (slot liblmdb:me-mapaddr))
+            :map-size (cffi:pointer-address (slot liblmdb:me-mapsize))))))
 
 (defun begin-transaction (transaction)
   "Begin the transaction.
@@ -273,7 +273,7 @@ floats, booleans and strings. Returns a (size . array) pair."
 
 @end(deflist)"
   (with-slots (env parent) transaction
-    (let ((return-code (lmdb.low:txn-begin (handle env)
+    (let ((return-code (liblmdb:txn-begin (handle env)
                                            (if parent
                                                (handle parent)
                                                (cffi:null-pointer))
@@ -297,7 +297,7 @@ floats, booleans and strings. Returns a (size . array) pair."
 called by the transaction-creating thread.)
 
 @end(deflist)"
-  (let ((return-code (lmdb.low:txn-commit (handle transaction))))
+  (let ((return-code (liblmdb:txn-commit (handle transaction))))
     (alexandria:switch (return-code :test #'=)
       (0
        ;; Success
@@ -315,7 +315,7 @@ called by the transaction-creating thread.)
 called by the transaction-creating thread.)
 
 @end(deflist)"
-  (lmdb.low:txn-abort (handle transaction)))
+  (liblmdb:txn-abort (handle transaction)))
 
 (defun open-database (database)
   "Open a database.
@@ -329,20 +329,20 @@ open the same database.)
 
 @end(deflist)"
   (with-slots (transaction name create) database
-    (let ((return-code (lmdb.low:dbi-open (handle transaction)
+    (let ((return-code (liblmdb:dbi-open (handle transaction)
                                           name
                                           (logior 0
                                                   (if create
-                                                      lmdb.low:+create+
+                                                      liblmdb:+create+
                                                       0))
                                           (%handle database))))
       (alexandria:switch (return-code)
         (0
          ;; Success
          t)
-        (lmdb.low:+notfound+
+        (liblmdb:+notfound+
          (error "Database not found, and did not specify :create t."))
-        (lmdb.low:+dbs-full+
+        (liblmdb:+dbs-full+
          (error "Reached maximum number of named databases."))
         (t
          (unknown-error return-code)))))
@@ -352,7 +352,7 @@ open the same database.)
   "Open a cursor."
   (with-slots (database) cursor
     (with-slots (transaction) database
-      (let ((return-code (lmdb.low:cursor-open (handle transaction)
+      (let ((return-code (liblmdb:cursor-open (handle transaction)
                                                (handle database)
                                                (%handle cursor))))
         (alexandria:switch (return-code)
@@ -370,12 +370,12 @@ open the same database.)
 (defmacro with-val ((raw-value data) &body body)
   (alexandria:with-gensyms (value-struct array)
     `(let* ((,value-struct (make-value ,data))
-            (,raw-value (cffi:foreign-alloc '(:struct lmdb.low:val)))
+            (,raw-value (cffi:foreign-alloc '(:struct liblmdb:val)))
             (,array (cffi:foreign-alloc :unsigned-char
                                         :count (value-size ,value-struct))))
        (setf (cffi:foreign-slot-value ,raw-value
-                                      '(:struct lmdb.low:val)
-                                      'lmdb.low:mv-size)
+                                      '(:struct liblmdb:val)
+                                      'liblmdb:mv-size)
              (cffi:make-pointer (value-size ,value-struct)))
 
        (loop for elem across (value-data ,value-struct)
@@ -384,23 +384,23 @@ open the same database.)
                 (setf (cffi:mem-aref ,array :unsigned-char i)
                       elem))
        (setf (cffi:foreign-slot-value ,raw-value
-                                      '(:struct lmdb.low:val)
-                                      'lmdb.low:mv-data)
+                                      '(:struct liblmdb:val)
+                                      'liblmdb:mv-data)
              ,array)
        ,@body)))
 
 (defmacro with-empty-value ((value) &body body)
-  `(cffi:with-foreign-object (,value '(:struct lmdb.low:val))
+  `(cffi:with-foreign-object (,value '(:struct liblmdb:val))
      ,@body))
 
 (defun raw-value-to-vector (raw-value)
   (let* ((size (cffi:pointer-address
                 (cffi:foreign-slot-value raw-value
-                                         '(:struct lmdb.low:val)
-                                         'lmdb.low:mv-size)))
+                                         '(:struct liblmdb:val)
+                                         'liblmdb:mv-size)))
          (array (cffi:foreign-slot-value raw-value
-                                         '(:struct lmdb.low:val)
-                                         'lmdb.low:mv-data))
+                                         '(:struct liblmdb:val)
+                                         'liblmdb:mv-data))
          (vec (make-array size
                           :element-type '(unsigned-byte 8))))
     (loop for i from 0 to (1- size) do
@@ -413,7 +413,7 @@ open the same database.)
   (with-slots (transaction) database
     (with-val (raw-key key)
       (with-empty-value (raw-value)
-        (let ((return-code (lmdb.low:get (handle transaction)
+        (let ((return-code (liblmdb:get (handle transaction)
                                          (handle database)
                                          raw-key
                                          raw-value)))
@@ -421,7 +421,7 @@ open the same database.)
             (0
              ;; Success
              (values (raw-value-to-vector raw-value) t))
-            (lmdb.low:+notfound+
+            (liblmdb:+notfound+
              (values nil nil))
             (t
              (unknown-error return-code))))))))
@@ -431,7 +431,7 @@ open the same database.)
   (with-slots (transaction) database
     (with-val (raw-key key)
       (with-val (raw-val value)
-        (let ((return-code (lmdb.low:put (handle transaction)
+        (let ((return-code (liblmdb:put (handle transaction)
                                          (handle database)
                                          raw-key
                                          raw-val
@@ -449,7 +449,7 @@ open the same database.)
 @c(nil) otherwise."
   (with-slots (transaction) database
     (with-val (raw-key key)
-      (let ((return-code (lmdb.low:del (handle transaction)
+      (let ((return-code (liblmdb:del (handle transaction)
                                        (handle database)
                                        raw-key
                                        (if data
@@ -459,7 +459,7 @@ open the same database.)
           (0
            ;; Success
            t)
-          (lmdb.low:+notfound+
+          (liblmdb:+notfound+
            nil)
           (+eacces+
            (error "An attempt was made to delete a key in a read-only transaction."))
@@ -478,7 +478,7 @@ The @cl:param(operation) argument specifies the operation."
               (:prev :+prev+))))
     (with-empty-value (raw-key)
       (with-empty-value (raw-value)
-        (let ((return-code (lmdb.low:cursor-get (handle cursor)
+        (let ((return-code (liblmdb:cursor-get (handle cursor)
                                                 raw-key
                                                 raw-value
                                                 op)))
@@ -487,7 +487,7 @@ The @cl:param(operation) argument specifies the operation."
              ;; Success
              (values (raw-value-to-vector raw-key)
                      (raw-value-to-vector raw-value)))
-            (lmdb.low:+notfound+
+            (liblmdb:+notfound+
              (values nil nil))
             (t
              (unknown-error return-code))))))))
@@ -506,7 +506,7 @@ function. Attempts to use those objects are closing the environment will result
 in a segmentation fault.)
 
 @end(deflist)"
-  (lmdb.low:env-close (handle environment))
+  (liblmdb:env-close (handle environment))
   (cffi:foreign-free (%handle environment)))
 
 (defun close-database (database)
@@ -527,7 +527,7 @@ database corruption to errors like MDB_BAD_VALSIZE (since the DB name is
 gone).))
 
 @end(deflist)"
-  (lmdb.low:dbi-close (handle
+  (liblmdb:dbi-close (handle
                        (transaction-environment
                         (database-transaction database)))
                       (handle database))
@@ -537,7 +537,7 @@ gone).))
   "Close a cursor."
   (with-slots (database) cursor
     (with-slots (transaction) database
-      (lmdb.low:cursor-close (%handle cursor))
+      (liblmdb:cursor-close (%handle cursor))
       (cffi:foreign-free (%handle cursor))))
   t)
 
@@ -587,6 +587,6 @@ is closed."
 (defun version-string ()
   "Return the version string."
   (format nil "~D.~D.~D"
-          lmdb.low:+version-major+
-          lmdb.low:+version-minor+
-          lmdb.low:+version-patch+))
+          liblmdb:+version-major+
+          liblmdb:+version-minor+
+          liblmdb:+version-patch+))

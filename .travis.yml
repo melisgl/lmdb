@@ -26,6 +26,7 @@ before_script:
   - ros config
 
 script:
+  - rm -rf ~/.cache/common-lisp/
   - ros -e '(ql:quickload (list :fiveam))'
         -e '(setf fiveam:*debug-on-error* t
                   fiveam:*debug-on-failure* t)'

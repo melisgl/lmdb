@@ -21,10 +21,6 @@ install:
   - git clone https://github.com/fukamachi/cl-coveralls ~/lisp/cl-coveralls
   - git clone https://github.com/antimer/liblmdb ~/lisp/liblmdb
 
-cache:
-  directories:
-    - $HOME/.roswell
-
 before_script:
   - ros --version
   - ros config

@@ -27,7 +27,7 @@ before_script:
 
 script:
   - rm -rf ~/.cache/common-lisp/
-  - sudo find / -type f -name "*lmdb*"
+  - find / -type f -name "*lmdb*"
   - ros -e '(ql:quickload (list :fiveam))'
         -e '(setf fiveam:*debug-on-error* t
                   fiveam:*debug-on-failure* t)'

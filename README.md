@@ -7,7 +7,7 @@ Common Lisp bindings to [LMDB](http://symas.com/mdb/).
 LMDB is really fast. [Here's][sql] how much faster SQLite got when they ported
 the B-tree code to use LMDB.
 
-The library is a wrapper over the [liblmdb][liblmdb] library.
+This is implemented as a wrapper over the [liblmdb][liblmdb] library.
 
 # Usage
 

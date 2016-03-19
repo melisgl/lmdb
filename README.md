@@ -1,5 +1,7 @@
 # LMDB
 
+[![Build Status](https://travis-ci.org/antimer/lmdb.svg?branch=master)](https://travis-ci.org/antimer/lmdb)
+
 Common Lisp bindings to [LMDB](http://symas.com/mdb/).
 
 # Overview

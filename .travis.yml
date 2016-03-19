@@ -1,5 +1,5 @@
 language: common-lisp
-sudo: false
+sudo: true
 
 env:
   global:
@@ -10,13 +10,8 @@ env:
   matrix:
     - LISP=sbcl-bin COVERALLS=true
 
-addons:
-  apt:
-    packages:
-      - liblmdb0
-      - lmdb-dev
-
 install:
+  - sudo apt-get install -y liblmdb0 lmdb-dev
   # Roswell & coveralls
   - curl -L https://raw.githubusercontent.com/snmsts/roswell/$ROSWELL_BRANCH/scripts/install-for-ci.sh | sh
   - git clone https://github.com/fukamachi/cl-coveralls ~/lisp/cl-coveralls
@@ -27,8 +22,6 @@ before_script:
   - ros config
 
 script:
-  - rm -rf ~/.cache/common-lisp/
-  - find / -type f -name "*lmdb*"
   - ros -e '(ql:quickload (list :fiveam))'
         -e '(setf fiveam:*debug-on-error* t
                   fiveam:*debug-on-failure* t)'

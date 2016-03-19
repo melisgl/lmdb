@@ -11,7 +11,7 @@ env:
     - LISP=sbcl-bin COVERALLS=true
 
 install:
-  - sudo apt-get install -y liblmdb0 lmdb-dev
+  - sudo apt-get install -y liblmdb0 liblmdb-dev
   # Roswell & coveralls
   - curl -L https://raw.githubusercontent.com/snmsts/roswell/$ROSWELL_BRANCH/scripts/install-for-ci.sh | sh
   - git clone https://github.com/fukamachi/cl-coveralls ~/lisp/cl-coveralls

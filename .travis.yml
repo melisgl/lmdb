@@ -14,6 +14,7 @@ addons:
   apt:
     packages:
       - liblmdb0
+      - lmdb-dev
 
 install:
   # Roswell & coveralls

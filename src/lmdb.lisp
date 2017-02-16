@@ -169,12 +169,14 @@ floats, booleans and strings. Returns a (size . array) pair."
     (vector
      (cons (length data) data))
     (integer
-     (let ((octets (bit-smasher:int->octets data)))
+     (let ((octets (integer-to-octets data)))
        (cons (length octets) octets)))
     (boolean
      (cons 1 (if data 1 0)))
     (t
      (error "Invalid type."))))
+
+
 
 (defun make-value (data)
   "Create a value object."
@@ -583,6 +585,16 @@ is closed."
                      ,value tv))))))))
 
 ;;; Utilities
+
+(defun integer-to-octets (bignum &aux (n-bits (integer-length bignum)))
+  (let* ((n-bytes (ceiling n-bits 8))
+         (octet-vec (make-array n-bytes :element-type '(unsigned-byte 8))))
+    (declare (type (simple-array (unsigned-byte 8)) octet-vec))
+    (loop
+       :for i :from (1- n-bytes) :downto 0
+       :for index :from 0
+       :do (setf (aref octet-vec index) (ldb (byte 8 (* i 8)) bignum))
+       :finally (return octet-vec))))
 
 (defun version-string ()
   "Return the version string."

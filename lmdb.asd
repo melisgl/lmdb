@@ -8,8 +8,7 @@
   :source-control (:git "git@github.com:antimer/lmdb.git")
   :depends-on (:liblmdb
                :alexandria
-               :trivial-utf-8
-               :bit-smasher)
+               :trivial-utf-8)
   :components ((:module "src"
                 :components
                 ((:file "lmdb"))))

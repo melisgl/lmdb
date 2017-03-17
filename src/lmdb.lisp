@@ -127,7 +127,7 @@
 
 ;;; Constructors
 
-(defun make-environment (directory &key (max-databases 1))
+(defun make-environment (directory &key (max-databases 1) (mapsize (* 10 1024 1024)))
   "Create an environment object.
 
 Before an environment can be used, it must be opened with @c(open-environment)."
@@ -139,8 +139,9 @@ Before an environment can be used, it must be opened with @c(open-environment)."
                0)
       (error "Error creating environment object."))
     ;; Set the maximum number of databases
-    (liblmdb:env-set-maxdbs (handle instance)
-                             (environment-max-dbs instance))
+    (liblmdb:env-set-maxdbs (handle instance) (environment-max-dbs instance))
+    ;; Set memory map size
+    (liblmdb:env-set-mapsize (handle instance) mapsize)
     instance))
 
 (defun make-transaction (environment &optional parent)

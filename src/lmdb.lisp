@@ -99,9 +99,7 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   ;; This is very bad. See @SAFETY.
   (unless (fboundp 'without-interrupts)
-    (error "WITHOUT-INTERRUPTS not implemented.")
-    (defmacro without-interrupts (&body body)
-      `(progn ,@body)))
+    (error "WITHOUT-INTERRUPTS not implemented."))
   ;; This is milder., but it means that WITH-TXN's body will not be
   ;; interruptible.
   (unless (fboundp 'with-interrupts)
@@ -250,8 +248,8 @@
   managing object lifetimes is the biggest burden. There are also
   rules that are documented, but not enforced. This Lisp wrapper tries
   to enforce these rules itself and manage object lifetimes in a safe
-  way to avoid database corruption. How and what it does is described
-  in the following.
+  way to avoid data corruption. How and what it does is described in
+  the following.
 
   ##### Environments
 
@@ -276,8 +274,9 @@
 
   ##### Databases
 
-  - [mdb_dbi_open()](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a) is wrapped by GET-DB in a transaction and is
-    protected by a mutex to comply with C lmdb's requirements:
+  - [mdb_dbi_open()](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a)
+    is wrapped by GET-DB in a transaction and is protected by a mutex
+    to comply with C lmdb's requirements:
 
            A transaction that opens a database must finish (either
            commit or abort) before another transaction may open it.
@@ -304,7 +303,7 @@
     safe and performant access to foreign objects.
 
   - Note that since cursors are associated with transactions,
-    MULTITHREADED allows to access transactions from other threads if
+    MULTITHREADED allows access to transactions from other threads if
     not with @BASIC-OPERATIONS, but with @CURSORS only.
 
   - Cursors in write transactions cannot use the MULTITHREADED option
@@ -316,13 +315,12 @@
   and `EAGAIN`), but unwinding the stack from interrupts in the middle
   of LMDB calls can leave the in-memory data structures such as
   transactions inconsistent. If this happens, their further use risks
-  database corruption. For this reason, calls to LMDB are performed
-  with interrupts disabled. For SBCL, this means
-  SB-SYS:WITHOUT-INTERRUPTS. It is an error when compiling LMDB if an
-  equivalent facility is not found in the Lisp implementation. A
-  warning is signalled if no substitute is found for
-  SB-SYS:WITH-INTERRUPTS because this makes the body of WITH-TXN and
-  WITH-CURSOR uninterruptible.
+  data corruption. For this reason, calls to LMDB are performed with
+  interrupts disabled. For SBCL, this means SB-SYS:WITHOUT-INTERRUPTS.
+  It is an error when compiling LMDB if an equivalent facility is not
+  found in the Lisp implementation. A warning is signalled if no
+  substitute is found for SB-SYS:WITH-INTERRUPTS because this makes
+  the body of WITH-TXN and WITH-CURSOR uninterruptible.
 
   Operations that do not modify the database (G3T, CURSOR-FIRST,
   CURSOR-VALUE and similar) are async unwind safe, and for performance
@@ -698,8 +696,8 @@
    (%envp :initform nil)
    (path
     :initarg :path :reader env-path
-    :documentation "The location of the memory-mapped and the
-    environment lock files.")
+    :documentation "The location of the memory-mapped file and the
+    environment lock file.")
    (max-dbs
     :type integer :initarg :max-dbs :reader env-max-dbs
     :documentation "The maximum number of named databases in the
@@ -725,6 +723,7 @@
   (:documentation "An environment object through which a memory-mapped
   data file can be accessed. Always to be created by MAKE-ENV."))
 
+;;; FIXME: indicate that the arguments take effect in open-env
 (defun make-env (path &key (max-dbs 1)
                  (max-readers 126) (map-size (* 1024 1024)) (mode #o664)
                  ;; Supported options
@@ -805,13 +804,13 @@
     help random read performance when the DB is larger than RAM and
     system RAM is full. This option is not implemented on Windows.
 
-  - LOCK: Database corruption lurks here. If NIL, don't do any
-    locking. If concurrent access is anticipated, the caller must
-    manage all concurrency itself. For proper operation the caller
-    must enforce single-writer semantics, and must ensure that no
-    readers are using old transactions while a writer is active. The
-    simplest approach is to use an exclusive lock so that no readers
-    may be active at all when a writer begins.
+  - LOCK: Data corruption lurks here. If NIL, don't do any locking. If
+    concurrent access is anticipated, the caller must manage all
+    concurrency itself. For proper operation the caller must enforce
+    single-writer semantics, and must ensure that no readers are using
+    old transactions while a writer is active. The simplest approach
+    is to use an exclusive lock so that no readers may be active at
+    all when a writer begins.
 
   - MEM-INIT: If NIL, don't initialize `malloc`ed memory before
     writing to unused spaces in the data file. By default, memory for
@@ -910,6 +909,7 @@
 ;;; CHECK-FOR-STALE-READERS fails.
 (defun check-for-stale-readers* (env)
   (handler-case
+      ;; FIXME: This may need a lock for safety according to James.
       (check-for-stale-readers env)
     (lmdb-error (e)
       (warn "CHECK-FOR-STALE-READERS failed with ~S." e))))
@@ -946,7 +946,7 @@
 (defun check-mdb-file-not-open-in-same-process (env)
   (bt:with-lock-held (*open-envs-lock*)
     (let ((truename (mdb-truename env)))
-      (unless (not (and truename (gethash truename *open-envs*)))
+      (when (and truename (gethash truename *open-envs*))
         (lmdb-error nil "mdb file ~S already open." truename)))))
 
 (defun env-flag-list-to-int (list)
@@ -978,13 +978,14 @@
   is opened multiple times. However, the checks performed do not work
   on remote filesystems (see ENV-PATH).
 
-  LMDB-ERROR is signalled if open the environment fails for any other
-  reason.
+  LMDB-ERROR is signalled if opening the environment fails for any
+  other reason.
 
   Wraps [mdb_env_create()](http://www.lmdb.tech/doc/group__mdb.html#gaad6be3d8dcd4ea01f8df436f41d158d4)
   and [mdb_env_open()](http://www.lmdb.tech/doc/group__mdb.html#ga32a193c6bf4d7d5c5d579e71f22e9340)."
   (when (open-env-p env)
     (lmdb-error nil "~S already open." env))
+  ;; FIXME: needs locking
   (check-mdb-file-not-open-in-same-process env)
   (with-slots (path flags mode) env
     (unless (probe-file path)
@@ -1066,8 +1067,8 @@
 
   Only a single thread may call this function. All env-dependent
   objects, such as transactions and databases, must be closed before
-  calling this function. Attempts to use those objects are closing the
-  environment will result in a segmentation fault.
+  calling this function. Attempts to use those objects after closing
+  the environment will result in a segmentation fault or data loss.
 
   Wraps [mdb_env_close()](http://www.lmdb.tech/doc/group__mdb.html#ga4366c43ada8874588b6a62fbda2d1e95)."
   (without-interrupts
@@ -1232,7 +1233,7 @@
   "The LMDB environment supports transactional reads and writes. By
   default, these provide the standard ACID (atomicity, consistency,
   isolation, durability) guarantees. Writes from a transaction are not
-  immediately visible to transactions. When the transaction is
+  immediately visible to other transactions. When the transaction is
   committed, all its writes become visible atomically for future
   transactions even if Lisp crashes or there is power failure. If the
   transaction is aborted, its writes are discarded.
@@ -1245,8 +1246,8 @@
   Write transactions can be nested. Child transactions see the
   uncommitted writes of their parent. The child transaction can commit
   or abort, at which point its writes become visible to the parent
-  transaction or are discarded. If parent aborts, all of the writes
-  performed in the context of the parent, including those from
+  transaction or are discarded. If the parent aborts, all of the
+  writes performed in the context of the parent, including those from
   committed child transactions, are discarded."
   (with-txn macro)
   (@active-transaction glossary-term)
@@ -1336,7 +1337,7 @@
   - If WRITE is NIL, the transaction is read-only and no writes (e.g.
     PUT) may be performed in the transaction. On the flipside, many
     read-only transactions can run concurrently (see ENV-MAX-READERS),
-    while there can be at most one write transaction. Furthermore, the
+    while write transactions are mutually exclusive. Furthermore, the
     single write transaction can also run concurrently with read
     transactions, just keep in mind that read transactions hold on to
     the state of the environment at the time of their creation and
@@ -1366,6 +1367,7 @@
            (optimize speed))
   (unless env
     (lmdb-error nil "WITH-TXN: ENV is NIL."))
+  ;; FIXME: Different ENVs?
   (when (and (not write) (not ignore-parent) (open-txn-p))
     (return-from call-with-txn (funcall fn)))
   (when (and write ignore-parent *has-open-write-txn-in-thread*)
@@ -1438,7 +1440,7 @@
   visible to future transactions. If TXN is a child transaction, then
   committing makes updates visible to its parent only. For read-only
   transactions, committing releases the reference to a historical
-  version environment, allowing reuse of pages since replaced.
+  version environment, allowing reuse of pages replaced since.
 
   Wraps [mdb_txn_commit()](http://www.lmdb.tech/doc/group__mdb.html#ga846fbd6f46105617ac9f4d76476f6597)."
   (require-open-txn "COMMIT-TXN")
@@ -1493,13 +1495,15 @@
         (t (lmdb-error return-code))))))
 
 (defsection @nesting-transactions (:title "Nesting transactions")
-  """Transactions can be nested to arbitrary levels by dynamically
-  nesting WITH-TXNs. Child transactions may be committed or aborted
-  independently from their parent transaction (the immediately
-  enclosing WITH-TXN). Committing a child transaction only makes the
-  updates made by it visible to the parent. If the parent then aborts,
-  the child's updates are aborted too. If the parent commits, all
-  child transactions that were not aborted are committed, too.
+  """When WITH-TXNs are nested (i.e. one is executed in the dynamic
+  extent of another), we speak of nested transactions. Transaction can
+  be nested to arbitrary levels. Child transactions may be committed
+  or aborted independently from their parent transaction (the
+  immediately enclosing WITH-TXN). Committing a child transaction only
+  makes the updates made by it visible to the parent. If the parent
+  then aborts, the child's updates are aborted too. If the parent
+  commits, all child transactions that were not aborted are committed,
+  too.
 
   Actually, the C lmdb library only supports nesting write
   transactions. To simplify usage, the Lisp side turns read-only
@@ -1537,16 +1541,16 @@
 
   COMMIT-TXN, ABORT-TXN, and RESET-TXN all close the transaction (see
   OPEN-TXN-P), which prevents database operations such as G3T, PUT,
-  DEL within that transaction. Furthermore, any cursors created in the
+  DEL within that transaction. Furthermore, any @CURSORS created in the
   context of the transaction will no longer be valid (but see
   CURSOR-RENEW).
 
-  An LMDB parent transaction and its @CURSORS must not issue
-  operations other than COMMIT-TXN and ABORT-TXN while there are
-  active child transactions. As the Lisp side does not expose
-  transaction objects directly, performing @BASIC-OPERATIONS in the
-  parent transaction is not possible. See the description of
-  MULTITHREADED NIL case of WITH-CURSOR for a more complete picture.
+  An LMDB parent transaction and its cursors must not issue operations
+  other than COMMIT-TXN and ABORT-TXN while there are active child
+  transactions. As the Lisp side does not expose transaction objects
+  directly, performing @BASIC-OPERATIONS in the parent transaction is
+  not possible. See the description of MULTITHREADED NIL case of
+  WITH-CURSOR for a more complete picture.
 
   IGNORE-PARENT true overrides the default nesting semantics of
   WITH-TXN and creates a new top-level transaction, which is not a
@@ -1563,8 +1567,8 @@
 
   Nesting a read transaction in another transaction would be an
   LMDB-BAD-RSLOT-ERROR according to the C lmdb library, but a
-  read-only WITH-TXN with IGNORE-PARENT nested in another WITH-TXN is
-  turned into a noop so this edge case is papered over.
+  read-only WITH-TXN with IGNORE-PARENT NIL nested in another WITH-TXN
+  is turned into a noop so this edge case is papered over.
   """)
 
 
@@ -1600,6 +1604,7 @@
   (drop-db function)
   (db-statistics function))
 
+;;; FIXME: have an ENV object to keep it from being finalized.
 (defclass db ()
   (;; This is an unsigned int.
    (dbi :initarg :dbi :reader %dbi)
@@ -1648,9 +1653,8 @@
   Note that changing the encoding does *not* reencode already existing
   data. encoding. See @ENCODINGS for their full semantics.
 
-  The recommended practice is to open a database in a process once, in
-  an initial read-only transaction, which commits. This leaves the db
-  open for use with later transactions.
+  The recommended practice is to open a database in a process once.
+  This leaves the db open for use in subsequent transactions.
 
   The following flags are for database creation, they do not have any
   effect in subsequent calls (except for the @UNNAMED-DATABASE).
@@ -1800,8 +1804,8 @@
     The reverse transformation takes place when returning values. This
     is the encoding used for INTEGER-KEY and INTEGER-DUP DBs.
 
-  - :OCTETS: Note that plural. Data to be encoded (e.g. KEY argument
-    of G3T) must be a 1D byte array. If its element type
+  - :OCTETS: Note the plural. Data to be encoded (e.g. KEY argument of
+    G3T) must be a 1D byte array. If its element type
     is `(UNSIGNED-BYTE 8)`, then the data can be passed to the foreign
     code more efficiently, but declaring the element type is not
     required. For example, VECTORs can be used as long as the actual
@@ -1810,8 +1814,8 @@
     a Lisp array.
 
   - :UTF-8: Data to be encoded must be a string, which is converted to
-    a octets by TRIVIAL-UTF-8. Null-terminated. Foreign byte arrays
-    are decoded the same way.
+    octets by TRIVIAL-UTF-8. Null-terminated. Foreign byte arrays are
+    decoded the same way.
 
   - NIL: Data is encoded using the default encoding according to its
     Lisp type: strings as :UTF-8, vectors as :OCTETS, `(UNSIGNED-BYTE
@@ -1916,7 +1920,7 @@
        ,@body)))
 
 (deftype octet () '(unsigned-byte 8))
-(deftype octets () '(simple-array octet (*)))
+(deftype octets (&optional (size '*)) `(simple-array octet (,size)))
 
 (cffi:defcfun ("memcpy" ) :int
   (dest :pointer)
@@ -2028,6 +2032,11 @@
     octets))
 
 (defun decode-native-uint64 (aligned-%octets)
+  "A function suitable for *KEY-DECODER* or *VALUE-DECODER* that
+  decodes native unsigned 64 bit integers. This function is called
+  automatically when the encoding is known to require it (see GET-DB's
+  INTEGER-KEY, :VALUE-ENCODING, etc). It is provided to decode values
+  manually."
   (declare (type fixnum aligned-%octets))
   (with-mdb-val-slots (%bytes size aligned-%octets)
     (declare (ignore size))
@@ -2304,7 +2313,7 @@
   "Like WITH-CURSOR, but the cursor object is not accessible directly,
   only through the @DEFAULT-CURSOR mechanism. The cursor is
   stack-allocated, which eliminates the consing of WITH-CURSOR. Note
-  that stack allocation of cursors in WITH-CURSOR would risk database
+  that stack allocation of cursors in WITH-CURSOR would risk data
   corruption if the cursor were accessed beyond its dynamic extent.
 
   Use WITH-IMPLICIT-CURSOR instead of WITH-CURSOR if a single cursor
@@ -2753,22 +2762,22 @@
     the old. Otherwise it will simply perform a delete of the old
     record followed by an insert.
 
-  - OVERWRITE: If NIL, signal KEY-EXISTS-ERROR if KEY already appears
-    in CURSOR-DB.
+  - OVERWRITE: If NIL, signal LMDB-KEY-EXISTS-ERROR if KEY already
+    appears in CURSOR-DB.
 
-  - DUPDATA: If NIL, signal KEY-EXISTS-ERROR if the KEY, VALUE pair
-    already appears in DB. Has no effect if CURSOR-DB doesn't have
-    @DUPSORT.
+  - DUPDATA: If NIL, signal LMDB-KEY-EXISTS-ERROR if the KEY, VALUE
+    pair already appears in DB. Has no effect if CURSOR-DB doesn't
+    have @DUPSORT.
 
   - APPEND: Append the KEY, VALUE pair to the end of CURSOR-DB instead
     of finding KEY's location in the B+ tree by performing
     comparisons. The client effectively promises that keys are
     inserted in sort order, which allows for fast bulk loading. If the
-    promise is broken, a KEY-EXISTS-ERROR is signalled.
+    promise is broken, a LMDB-KEY-EXISTS-ERROR is signalled.
 
   - APPEND-DUP: The client promises that duplicate values are inserted
-    in sort order. If the promise is broken, a KEY-EXISTS-ERROR is
-    signalled.
+    in sort order. If the promise is broken, a LMDB-KEY-EXISTS-ERROR
+    is signalled.
 
   May signal LMDB-MAP-FULL-ERROR, LMDB-TXN-FULL-ERROR,
   LMDB-TXN-READ-ONLY-ERROR.
@@ -2779,14 +2788,14 @@
     (without-interrupts
       (with-val (%key (encode-key (cursor-db cursor) key))
         (with-val (%val (encode-value (cursor-db cursor) value))
-          (let ((return-code
-                  (liblmdb:cursor-put (%cursorp cursor) %key %val
-                                      (logior
-                                       (if current liblmdb:+current+ 0)
-                                       (if dupdata 0 liblmdb:+nodupdata+)
-                                       (if overwrite 0 liblmdb:+nooverwrite+)
-                                       (if append liblmdb:+append+ 0)
-                                       (if append-dup liblmdb:+appenddup+ 0)))))
+          (let ((return-code (liblmdb:cursor-put
+                              (%cursorp cursor) %key %val
+                              (logior
+                               (if current liblmdb:+current+ 0)
+                               (if dupdata 0 liblmdb:+nodupdata+)
+                               (if overwrite 0 liblmdb:+nooverwrite+)
+                               (if append liblmdb:+append+ 0)
+                               (if append-dup liblmdb:+appenddup+ 0)))))
             (alexandria:switch (return-code)
               (0 value)
               (+eacces+ (lmdb-error +txn-read-only+))
@@ -2830,11 +2839,11 @@
   (do-db-dup macro))
 
 (defun cursor-renew (&optional cursor)
-  "Associate CURSOR with read-only TXN as if it had been created with
-  that transaction to begin with to avoid allocation overhead.
-  CURSOR-DB stays the same. This may be done whether the previous
-  transaction is open or closed (see OPEN-TXN-P). No values are
-  returned.
+  "Associate CURSOR with the @ACTIVE-TRANSACTION (which must be
+  read-only) as if it had been created with that transaction to begin
+  with to avoid allocation overhead. CURSOR-DB stays the same. This
+  may be done whether the previous transaction is open or closed (see
+  OPEN-TXN-P). No values are returned.
 
   Wraps [mdb_cursor_renew()](http://www.lmdb.tech/doc/group__mdb.html#gac8b57befb68793070c85ea813df481af)."
   (let ((cursor (or cursor *default-cursor*)))

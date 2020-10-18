@@ -22,11 +22,8 @@ before_script:
   - ros config
 
 script:
-  - ros -e '(ql:quickload (list :fiveam))'
-        -e '(setf fiveam:*debug-on-error* t
-                  fiveam:*debug-on-failure* t)'
-        -e '(ql:quickload :lmdb-test)'
-        -e '(lmdb-test:run-tests)'
+  - ros -e '(ql:quickload :lmdb/test)'
+        -e '(lmdb/test:test)'
 
 notifications:
   email:

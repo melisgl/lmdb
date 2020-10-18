@@ -1,0 +1,1610 @@
+# LMDB Manual
+
+###### \[in package LMDB\]
+## lmdb ASDF System Details
+
+- Version: 0.1
+- Description: Bindings to LMDB, the Lightning Memory-mapped Database.
+- Licence: MIT, see COPYING.
+- Author: Fernando Borretti <eudoxiahp@gmail.com>, James Anderson <james.anderson@setf.de>, Gábor Melis <mega@retes.hu>
+- Maintainer: Fernando Borretti <eudoxiahp@gmail.com>
+- Homepage: [https://github.com/antimer/lmdb](https://github.com/antimer/lmdb)
+- Bug tracker: [https://github.com/antimer/lmdb/issues](https://github.com/antimer/lmdb/issues)
+- Source control: [GIT](git@github.com:antimer/lmdb.git)
+
+## Links
+
+Here is the [official repository](https://github.com/antimer/lmdb)
+and the [HTML
+documentation](http://melisgl.github.io/mgl-pax-world/lmdb-manual.html)
+for the latest version.
+
+## Introduction
+
+[LMDB](http://www.lmdb.tech/doc/), the Lightning Memory-mapped
+Database, is an [ACID](https://en.wikipedia.org/wiki/ACID) key-value
+database with
+[MVCC](https://en.wikipedia.org/wiki/Multiversion_concurrency_control).
+It is a small C library ("C lmdb" from now on), around which LMDB
+is a Common Lisp wrapper. LMDB covers most of C lmdb's
+functionality, has a simplified API, much need @SAFETY checks, and
+comprehensive documentation.
+
+Compared to other key-value stores, LMDB's distuingishing features
+are:
+
+- Transactions span multiple keys.
+
+- Concurrent use not only by multiple threads but by multiple OS
+  processes, too.
+
+- Extremely high read performance: millions of transactions per
+  second.
+
+- Very low maintenance.
+
+Other notable things:
+
+- With its default - the most durable - settings, it has average
+  write performance, which is bottlenecked by `fsync()`.
+
+- Readers don't block readers or writers, but there is at most one
+  writer at a time.
+
+- Extremely simple, crash-proof design.
+
+- The entire database (called *environment*) is backed by a single
+  memory-mapped file, with a
+  [copy-on-write](https://en.wikipedia.org/wiki/Copy-on-write)
+  [B+ tree](https://en.wikipedia.org/wiki/B%2B_tree).
+
+- No transaction log.
+
+- It is very much like [Berkeley
+  DB](https://en.wikipedia.org/wiki/Berkeley_DB) done right, without
+  the fluff and much improved administration.
+
+Do read the [Caveats](http://www.lmdb.tech/doc/), though. On the
+Lisp side, this library **will not work with virtual threads**
+because LMDB's write locking is tied to native threads.
+
+Using LMDB is easy:
+
+```
+(with-temporary-env (env)
+  (let ((db (get-db "test" :if-does-not-exist :create)))
+    (with-txn (:write t)
+      (put db "k1" #(2 3))
+      (print (g3t db "k1")) ; => #(2 3)
+      (del db "k1"))))
+```
+
+More typically, the environment and databases are opened once so
+that multiple threads and transactions can access them:
+
+```
+(defvar *test-db*)
+
+(unless *env*
+  (setq *env* (make-env "/tmp/lmdb-test-env/")))
+(unless (open-env-p *env*)
+  (setq *env* (open-env  *env* :if-does-not-exist :create))
+  (setq *test-db* (get-db "test" :if-does-not-exist :create
+                                 :value-encoding :utf-8)))
+
+(with-txn (:write t)
+  (put *test-db* 1 "hello")
+  (print (g3t *test-db* 1)) ; => "hello"
+  (del *test-db* 1))
+```
+
+Note how :VALUE-ENCODING sneaked in above. This was so to make G3T
+return a string instead of an octet vector.
+
+LMDB treats keys and values as opaque byte arrays to be hung on a B+
+tree, and only requires a comparison function to be defined over
+keys. LMDB knows how to serialize the types `(UNSIGNED-BYTE 64)` and
+STRING (which are often used as keys so sorting must work as
+expected). Serialization of the rest of the datatypes is left to the
+client. See @ENCODINGS for more.
+
+## Design and implementation
+
+### Safety
+
+The lmdb C API trusts client code to respect its rules. Being C,
+managing object lifetimes is the biggest burden. There are also
+rules that are documented, but not enforced. This Lisp wrapper tries
+to enforce these rules itself and manage object lifetimes in a safe
+way to avoid database corruption. How and what it does is described
+in the following.
+
+##### Environments
+
+- OPEN-ENV checks that the same path is not used in multiple open
+  environments to prevent locking issues documented in
+  [Caveats](http://www.lmdb.tech/doc/).
+
+##### Transactions
+
+- Transactions are not exposed to the client, their lifetime is tied
+  to the dynamic extent of their WITH-TXN. Using transactions from
+  threads other than the thread of their creation is thus not
+  possible. This design allows WITH-TXN to work with zero consing
+  and prevents difficult to diagnose races that could arise with
+  garbage transactions being accessed in other threads. The
+  alternative of locking every access to transaction objects and
+  dealing with their finalization is much too heavyweight. Cursors,
+  described below, offer a way to circumvent this protection.
+
+- Checks are made to detect illegal operations on parent
+  transactions (see LMDB-ILLEGAL-ACCESS-TO-PARENT-TXN-ERROR).
+
+##### Databases
+
+- [mdb\_dbi\_open()](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a) is wrapped by GET-DB in a transaction and is
+  protected by a mutex to comply with C lmdb's requirements:
+
+         A transaction that opens a database must finish (either
+         commit or abort) before another transaction may open it.
+         Multiple concurrent transactions cannot open the same
+         database.
+
+- [mdb\_dbi\_close()](http://www.lmdb.tech/doc/group__mdb.html#ga52dd98d0c542378370cd6b712ff961b5)
+  is too dangerous to be exposed as explained in the GET-DB
+  documentation.
+
+- For similar reasons, DROP-DB is wrapped in WITH-ENV.
+
+- [mdb\_env\_set\_mapsize()](http://www.lmdb.tech/doc/group__mdb.html#gaa2506ec8dab3d969b0e609cd82e619e5),
+  [mdb\_env\_set\_max\_readers()](http://www.lmdb.tech/doc/group__mdb.html#gae687966c24b790630be2a41573fe40e2),
+  and [mdb\_env\_set\_maxdbs()](http://www.lmdb.tech/doc/group__mdb.html#gaa2fc2f1f37cb1115e733b62cab2fcdbc)
+  are only available through OPEN-ENV because they either require that
+  there are no write transactions or do not work on open environments.
+
+##### Cursors
+
+- Unless MULTITHREADED, WITH-CURSOR creates cursors that can be used
+  only in the thread they were created in. Similarly to the
+  rationale above for not exposing transactions, this is to ensure
+  safe and performant access to foreign objects.
+
+- Note that since cursors are associated with transactions,
+  MULTITHREADED allows to access transactions from other threads if
+  not with @BASIC-OPERATIONS, but with @CURSORS only.
+
+- Cursors in write transactions cannot use the MULTITHREADED option
+  to accommodate C lmdb restrictions.
+
+##### Signal handling
+
+The C lmdb library handles system calls being interrupted (`EINTR`
+and `EAGAIN`), but unwinding the stack from interrupts in the middle
+of LMDB calls can leave the in-memory data structures such as
+transactions inconsistent. If this happens, their further use risks
+database corruption. For this reason, calls to LMDB are performed
+with interrupts disabled. For SBCL, this means
+SB-SYS:WITHOUT-INTERRUPTS. It is an error when compiling LMDB if an
+equivalent facility is not found in the Lisp implementation. A
+warning is signalled if no substitute is found for
+SB-SYS:WITH-INTERRUPTS because this makes the body of WITH-TXN and
+WITH-CURSOR uninterruptible.
+
+Operations that do not modify the database (G3T, CURSOR-FIRST,
+CURSOR-VALUE and similar) are async unwind safe, and for performance
+they are called without the above provisions.
+
+Note that the library is not reentrant, so don't call LMDB from
+signal handlers.
+
+### Deviations from C lmdb API
+
+The following are the most prominent deviations and omissions from
+the C lmdb API in addition to those listed in @SAFETY.
+
+##### Environments
+
+- [mdb\_reader\_list()](http://www.lmdb.tech/doc/group__mdb.html#ga8550000cd0501a44f57ee6dff0188744)
+  is not implemented.
+
+- [mdb\_env\_copy](http://www.lmdb.tech/doc/group__mdb.html#ga5d51d6130325f7353db0955dbedbc378)
+  and its close kin are not yet implemented.
+
+##### Transactions
+
+- Read-only WITH-TXNs are turned into noops when "nested" (unless
+  IGNORE-PARENT).
+
+##### Databases
+
+- [mdb\_set\_compare()](http://www.lmdb.tech/doc/group__mdb.html#ga68e47ffcf72eceec553c72b1784ee0fe)
+  and [mdb\_set\_dupsort()](http://www.lmdb.tech/doc/group__mdb.html#gacef4ec3dab0bbd9bc978b73c19c879ae)
+  are not exposed. If this is needed, implement a foreign comparison
+  function and call LIBLMDB:SET-COMPARE or LIBLMDB:SET-DUPSORT
+  directly or perhaps change the encoding of the data.
+
+- Working with multiple contiguous values with DUPFIXED is not yet
+  implemented. This functionality would belong in PUT, CURSOR-PUT,
+  CURSOR-NEXT and CURSOR-VALUE.
+
+- PUT, CURSOR-PUT do not support the
+  [RESERVE](http://www.lmdb.tech/doc/group__mdb__put.html#gac0545c6aea719991e3eae6ccc686efcc)
+  flag.
+
+
+## Library versions
+
+- [function] LMDB-FOREIGN-VERSION 
+
+    Return the version of the C lmdb library as a string like `0.9.26`.
+    
+    Wraps [mdb\_version()](http://www.lmdb.tech/doc/group__mdb.html#ga0e5d7298fc39b3c187fffbe30264c968).
+
+- [function] LMDB-BINDING-VERSION 
+
+    Return a string representing the version of C lmdb based on which
+    the CFFI bindings were created. The version string has the same
+    format as LMDB-FOREIGN-VERSION.
+
+## Environments
+
+An environment (class ENV) is basically a single memory-mapped file
+holding all the data, plus some flags determining how we interact
+it. An environment can have multiple databases (class DB), each of
+which is a B+ tree within the same file. An environment is like a
+database in a relational db, and the databases in it are like tables
+and indices. The terminology comes from [Berkeley
+DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
+
+### Creating environments
+
+- [function] MAKE-ENV PATH &KEY (MAX-DBS 1) (MAX-READERS 126) (MAP-SIZE (\* 1024 1024)) (MODE 436) (SUBDIR T) (SYNC T) (META-SYNC T) READ-ONLY (TLS T) (READ-AHEAD T) (LOCK T) (MEM-INIT T) FIXED-MAP WRITE-MAP MAP-ASYNC
+
+    Create an ENV object through which the LMDB environment can be
+    accessed. Before it can be used though, it must be opened with
+    OPEN-ENV.
+    
+    Unless explicitly noted, none of arguments persist (i.e. they are
+    not saved in the data file).
+    
+    PATH is the filesystem location of the environment files (see SUBDIR
+    below for more). Do not use LMDB data files on remote filesystems,
+    even between processes on the same host. This breaks `flock()` on
+    some OSes, possibly memory map sync, and certainly sync between
+    programs on different hosts.
+    
+    - MAX-DBS: The maximum number of named databases in the environment.
+      Currently a moderate number is cheap, but a huge number gets
+      expensive: 7-120 words per transaction, and every GET-DB does a
+      linear search of the opened database.
+    
+    - MAP-SIZE: Specifies the size of the data file in bytes. The new
+      size takes effect immediately for the current process, but will
+      not be persisted to any others until a write transaction has been
+      committed by the current process. Also, only map size increases
+      are persisted into the environment. If the map size is increased
+      by another process, and data has grown beyond the range of the
+      current mapsize, startin a new transaction (see WITH-TXN) will
+      signal LMDB-MAP-RESIZED-ERROR. If zero is specified for MAP-SIZE,
+      then the persisted size is used from the data file. Also see
+      LMDB-MAP-FULL-ERROR.
+    
+    - MODE: Unix file mode for files created. The default is `#o664`.
+      Has no effect when opening an existing environment.
+    
+    The rest of the arguments correspond to LMDB environment flags and
+    are available in the plist ENV-FLAGS.
+    
+    - SUBDIR: If SUBDIR, then the path is a directory which holds the
+      `data.mdb` and the `lock.mdb` files. If SUBDIR is NIL, the path
+      is the filename of the data file and the lock file has the same
+      name plus a `-lock` suffix.
+    
+    - SYNC: If NIL, don't `fsync` after commit. This optimization means
+      a system crash can corrupt the database or lose the last
+      transactions if buffers are not yet flushed to disk. The risk is
+      governed by how often the system flushes dirty buffers to disk and
+      how often SYNC-ENV is called. However, if the filesystem preserves
+      write order (very few do) and the WRITE-MAP (currently
+      unsupported) flag is not used, transactions exhibit
+      ACI (atomicity, consistency, isolation) properties and only lose
+      D (durability). I.e. database integrity is maintained, but a
+      system crash may undo the final transactions.
+    
+    - META-SYNC: If NIL, flush system buffers to disk only once per
+      transaction, but omit the metadata flush. Defer that until the
+      system flushes files to disk, the next commit of a non-read-only
+      transaction or SYNC-ENV. This optimization maintains database
+      integrity, but a system crash may undo the last committed
+      transaction. I.e. it preserves the ACI (atomicity, consistency,
+      isolation) but not D (durability) database property.
+    
+    - READ-ONLY: Map the data file in read-only mode. It is an error to
+      try to modify anything in it.
+    
+    - TLS: Setting it to NIL allows each OS thread to have multiple
+      read-only transactions (see WITH-TXN's IGNORE-PARENT argument). It
+      also allows and transactions not to be tied to a single thread,
+      but that's quite dangerous, see @SAFETY.
+    
+    - READ-AHEAD: Turn off readahead as in `madvise(MADV_RANDOM)`. Most
+      operating systems perform read-ahead on read requests by default.
+      This option turns it off if the OS supports it. Turning it off may
+      help random read performance when the DB is larger than RAM and
+      system RAM is full. This option is not implemented on Windows.
+    
+    - LOCK: Database corruption lurks here. If NIL, don't do any
+      locking. If concurrent access is anticipated, the caller must
+      manage all concurrency itself. For proper operation the caller
+      must enforce single-writer semantics, and must ensure that no
+      readers are using old transactions while a writer is active. The
+      simplest approach is to use an exclusive lock so that no readers
+      may be active at all when a writer begins.
+    
+    - MEM-INIT: If NIL, don't initialize `malloc`ed memory before
+      writing to unused spaces in the data file. By default, memory for
+      pages written to the data file is obtained using `malloc`. While
+      these pages may be reused in subsequent transactions, freshly
+      `malloc`ed pages will be initialized to zeroes before use. This
+      avoids persisting leftover data from other code (that used the
+      heap and subsequently freed the memory) into the data file. Note
+      that many other system libraries may allocate and free memory from
+      the heap for arbitrary uses. E.g., stdio may use the heap for file
+      I/O buffers. This initialization step has a modest performance
+      cost so some applications may want to disable it using this flag.
+      This option can be a problem for applications which handle
+      sensitive data like passwords, and it makes memory checkers like
+      Valgrind noisy. This flag is not needed with WRITE-MAP, which
+      writes directly to the mmap instead of using malloc for pages.
+    
+    - FIXED-MAP (experimental): This flag must be specified when
+      creating the environment and is stored persistently in the data
+      file. If successful, the memory map will always reside at the same
+      virtual address and pointers used to reference data items in the
+      database will be constant across multiple invocations. This option
+      may not always work, depending on how the operating system has
+      allocated memory to shared libraries and other uses.
+    
+    Unsupported flags (an error is signalled if they are changed from
+    their default values):
+    
+    - WRITE-MAP: Use a writable memory map unless READ-ONLY is set. This
+      is faster and uses fewer mallocs, but loses protection from
+      application bugs like wild pointer writes and other bad updates
+      into the database. Incompatible with nested transactions. This may
+      be slightly faster for DBs that fit entirely in RAM, but is slower
+      for DBs larger than RAM. Do not mix processes with and without
+      WRITE-MAP on the same environment. This can defeat
+      durability (SYNC-ENV, etc).
+    
+    - MAP-ASYNC: When using WRITE-MAP, use asynchronous flushes to disk.
+      As with SYNC NIL, a system crash can then corrupt the database or
+      lose the last transactions. Calling #sync ensures on-disk database
+      integrity until next commit.
+    
+    Open environments have a finalizer attached to them that takes care
+    of freeing foreign resources. Thus, the common idiom:
+    
+    ```
+    (setq *env* (open-env (make-env "some-path")))
+    ```
+    
+    is okay for development, too. No need to always do WITH-ENV,
+    which does not mesh with threads anyway.
+    
+    Related to [mdb\_env\_open()](http://www.lmdb.tech/doc/group__mdb.html#ga32a193c6bf4d7d5c5d579e71f22e9340).
+
+- [class] ENV
+
+    An environment object through which a memory-mapped
+    data file can be accessed. Always to be created by MAKE-ENV.
+
+##### Environment reader functions
+
+- [reader] ENV-PATH ENV (:PATH)
+
+    The location of the memory-mapped and the
+    environment lock files.
+
+- [reader] ENV-MAX-DBS ENV (:MAX-DBS)
+
+    The maximum number of named databases in the
+    environment. Currently a moderate number is cheap, but a huge
+    number gets expensive: 7-120 words per transaction, and every
+    GET-DB does a linear search of the opened database.
+
+- [reader] ENV-MAX-READERS ENV (:MAX-READERS)
+
+    The maximum number of threads/reader slots. See
+    the documentation of the [reader lock
+    table](http://lmdb.tech/doc/group__readers.html) for more.
+
+- [reader] ENV-MAP-SIZE ENV (:MAP-SIZE)
+
+    Specifies the size of the data file in bytes.
+
+- [reader] ENV-MODE ENV (:MODE)
+
+- [reader] ENV-FLAGS ENV (:FLAGS)
+
+    A plist of the options as captured by MAKE-ENV.
+    For example, `(:FIXED-MAP NIL :SUBDIR T ...)`.
+
+### Opening and closing environments
+
+- [function] OPEN-ENV ENV &KEY (IF-DOES-NOT-EXIST :ERROR)
+
+    Open ENV for accessing the data in it. It is an error to open an
+    already open environment.
+    
+    IF-DOES-NOT-EXIST determines what happens if ENV-PATH does not
+    exists:
+    
+    - :ERROR: An error is signalled.
+    
+    - :CREATE: A new memory-mapped file is created ensuring that all
+      containing directories exist.
+    
+    - `NIL`: Return NIL without doing anything.
+    
+    To prevent corruption, an error is signalled if the same data file
+    is opened multiple times. However, the checks performed do not work
+    on remote filesystems (see ENV-PATH).
+    
+    LMDB-ERROR is signalled if open the environment fails for any other
+    reason.
+    
+    Wraps [mdb\_env\_create()](http://www.lmdb.tech/doc/group__mdb.html#gaad6be3d8dcd4ea01f8df436f41d158d4)
+    and [mdb\_env\_open()](http://www.lmdb.tech/doc/group__mdb.html#ga32a193c6bf4d7d5c5d579e71f22e9340).
+
+- [function] CLOSE-ENV ENV
+
+    Close ENV and free the memory. After closing, ENV can be opened again.
+    
+    Only a single thread may call this function. All env-dependent
+    objects, such as transactions and databases, must be closed before
+    calling this function. Attempts to use those objects are closing the
+    environment will result in a segmentation fault.
+    
+    Wraps [mdb\_env\_close()](http://www.lmdb.tech/doc/group__mdb.html#ga4366c43ada8874588b6a62fbda2d1e95).
+
+- [variable] *ENV* NIL
+
+    The default ENVIRONMENT for WITH-TXN.
+
+- [macro] WITH-ENV (ENV &KEY (IF-DOES-NOT-EXIST :ERROR)) &BODY BODY
+
+    Call OPEN-ENV on ENV with IF-DOES-NOT-EXIST, bind *ENV* to
+    ENV, execute BODY, and CLOSE-ENV.
+
+- [function] OPEN-ENV-P ENV
+
+    See if ENV is open, i.e. OPEN-ENV has been called on it without a
+    corresponding CLOSE-ENV.
+
+### Miscellaneous environment functions
+
+- [function] CHECK-FOR-STALE-READERS ENV
+
+    Check for stale entries in the reader lock table. See
+    [Caveats](http://www.lmdb.tech/doc/). This function is called
+    automatically by OPEN-ENV. If OS other processes or threads
+    accessing ENV abort without closing read transactions, call this
+    function periodically to get rid off them. Alternatively, close all
+    environments accessing the data file.
+    
+    Wraps [mdb\_reader\_check()](http://www.lmdb.tech/doc/group__mdb.html#ga366923d08bb384b3d9580a98edf5d668).
+
+- [function] ENV-STATISTICS ENV
+
+    Return statistics about ENV as a plist.
+    
+    - :PAGE-SIZE: The size of a database page in bytes.
+    
+    - :DEPTH: The height of the B-tree.
+    
+    - :BRANCH-PAGES: The number of internal (non-leaf) pages.
+    
+    - :LEAF-PAGES: The number of leaf pages.
+    
+    - :OVERFLOW-PAGES: The number of overflow pages.
+    
+    - :ENTRIES: The number of data items.
+    
+    Wraps [mdb\_env\_stat()](http://www.lmdb.tech/doc/group__mdb.html#gaf881dca452050efbd434cd16e4bae255).
+
+- [function] ENV-INFO ENV
+
+    Return information about ENV as a plist.
+    
+    - :MAP-ADDRESS: Address of memory map, if fixed (see OPEN-ENV's
+      FIXED-MAP).
+    
+    - :MAP-SIZE: Size of the memory map in bytes.
+    
+    - :LAST-PAGE-NUMBER: Id of the last used page.
+    
+    - :LAST-TXN-ID: Id of the last committed transaction.
+    
+    - :MAXIMUM-READERS: The number of reader slots.
+    
+    - :N-READERS: The number of reader slots current used.
+    
+    Wraps [mdb\_env\_info()](http://www.lmdb.tech/doc/group__mdb.html#ga18769362c7e7d6cf91889a028a5c5947).
+
+- [function] SYNC-ENV ENV
+
+    Flush the data buffers to disk as in calling `fsync()`. When ENV
+    had been opened with :SYNC NIL or :META-SYNC NIL, this may be handy
+    to force flushing the OS buffers to disk, which avoids potential
+    durability and integrity issues.
+    
+    Wraps [mdb\_env\_sync()](http://www.lmdb.tech/doc/group__mdb.html#ga85e61f05aa68b520cc6c3b981dba5037).
+
+- [function] ENV-MAX-KEY-SIZE ENV
+
+    Return the maximum size of keys and @DUPSORT data in bytes. Depends
+    on the compile-time constant `MDB_MAXKEYSIZE` in the C library. The
+    default is 511. If this limit is exceeded LMDB-BAD-VALSIZE-ERROR is
+    signalled.
+    
+    Wraps [mdb\_env\_get\_maxkeysize()](http://www.lmdb.tech/doc/group__mdb.html#gaaf0be004f33828bf2fb09d77eb3cef94).
+
+- [macro] WITH-TEMPORARY-ENV (VAR &REST ENV-ARGS) &BODY BODY
+
+    Run BODY with an open temporary environment bound to VAR. In more
+    detail, create an environment in a fresh temporary directory in an
+    OS specific location. ENV-ARGS is a list of keyword arguments and
+    values for MAKE-ENV. This is intended for testing and examples.
+
+## Transactions
+
+The LMDB environment supports transactional reads and writes. By
+default, these provide the standard ACID (atomicity, consistency,
+isolation, durability) guarantees. Writes from a transaction are not
+immediately visible to transactions. When the transaction is
+committed, all its writes become visible atomically for future
+transactions even if Lisp crashes or there is power failure. If the
+transaction is aborted, its writes are discarded.
+
+Transactions span the entire environment (see ENV). All the updates
+made in the course of an update transaction - writing records across
+all databases, creating databases, and destroying databases - are
+either completed atomically or rolled back.
+
+Write transactions can be nested. Child transactions see the
+uncommitted writes of their parent. The child transaction can commit
+or abort, at which point its writes become visible to the parent
+transaction or are discarded. If parent aborts, all of the writes
+performed in the context of the parent, including those from
+committed child transactions, are discarded.
+
+- [macro] WITH-TXN (&KEY (ENV '\*ENV\*) WRITE IGNORE-PARENT (SYNC T) (META-SYNC T)) &BODY BODY
+
+    Start a transaction in ENV, execute BODY. Then, if the transaction
+    is open (see OPEN-TXN-P) and BODY returned normally, attempt to
+    commit the transaction. Next, if BODY performed a non-local exit or
+    committing failed, but the transaction is still open, then abort it.
+    It is explicitly allowed to call COMMIT-TXN or ABORT-TXN within
+    WITH-TXN.
+    
+    Transactions provide ACID guarantees (with SYNC and META-SYNC both
+    on). They span the entire environment, they are not specific to
+    individual DB.
+    
+    - If WRITE is NIL, the transaction is read-only and no writes (e.g.
+      PUT) may be performed in the transaction. On the flipside, many
+      read-only transactions can run concurrently (see ENV-MAX-READERS),
+      while there can be at most one write transaction. Furthermore, the
+      single write transaction can also run concurrently with read
+      transactions, just keep in mind that read transactions hold on to
+      the state of the environment at the time of their creation and
+      thus prevent pages since replaced from being reused.
+    
+    - If IGNORE-PARENT is true, then in an enclosing WITH-TXN, instead
+      of creating a child transaction, start an independent transaction.
+    
+    - If SYNC is NIL, then no flushing of buffers will take place after
+      a commit as if the environment had been opened with :SYNC NIL.
+    
+    - Likewise, META-SYNC is the per-transaction equivalent of the
+      OPEN-ENV's META-SYNC.
+    
+    Also see @NESTING-TRANSACTIONS.
+    
+    Wraps [mdb\_txn\_begin()](http://www.lmdb.tech/doc/group__mdb.html#gad7ea55da06b77513609efebd44b26920).
+
+- [glossary-term] active transaction
+
+    During execution, the active transaction is the transaction created
+    by the immediately enclosing WITH-TXN. That is, the innermost
+    WITH-TXN that has the currently running code within its dynamic
+    extent.
+    
+    Operations that require a transaction always attempt to use the
+    active transaction even if it is not open (see OPEN-TXN-P).
+
+- [function] OPEN-TXN-P 
+
+    See if TXN is open, i.e. COMMIT-TXN or ABORT-TXN have not been
+    called on it. Also, RESET-TXN without a corresponding RENEW-TXN
+    closes the transaction.
+
+- [function] TXN-ID 
+
+    The ID of TXN. IDs are integers incrementing from 1. For a
+    read-only transaction, this corresponds to the snapshot being read;
+    concurrent readers will frequently have the same transaction ID.
+    Only committed write transactions increment the ID. If a transaction
+    aborts, the ID may be re-used by the next writer.
+
+- [function] COMMIT-TXN 
+
+    Commit TXN or signal an error if it is not open. If TXN is not
+    nested in another transaction, committing makes updates performed
+    visible to future transactions. If TXN is a child transaction, then
+    committing makes updates visible to its parent only. For read-only
+    transactions, committing releases the reference to a historical
+    version environment, allowing reuse of pages since replaced.
+    
+    Wraps [mdb\_txn\_commit()](http://www.lmdb.tech/doc/group__mdb.html#ga846fbd6f46105617ac9f4d76476f6597).
+
+- [function] ABORT-TXN 
+
+    Close TXN by discarding all updates performed, which will then not
+    be visible to either parent or future transactions. Aborting an
+    already closed transaction is a noop. Always succeeds.
+    
+    Wraps [mdb\_txn\_abort()](http://www.lmdb.tech/doc/group__mdb.html#ga73a5938ae4c3239ee11efa07eb22b882).
+
+- [function] RENEW-TXN 
+
+    Renew TXN that was reset by RESET-TXN. This acquires a new reader
+    lock that had been released by RESET-TXN. After renewal, it is as if
+    TXN had just been started.
+    
+    Wraps [mdb\_txn\_renew()](http://www.lmdb.tech/doc/group__mdb.html#ga6c6f917959517ede1c504cf7c720ce6d).
+
+- [function] RESET-TXN 
+
+    Abort the open, read-only TXN, release the reference to the
+    historical version of the environment, but make it faster to start
+    another read-only transaction with RENEW-TXN. This is accomplished
+    by not deallocating some data structures, and keeping the slot in
+    the reader table. Cursors opened within the transaction must not be
+    used again, except if renewed (see RENEW-CURSOR). If TXN is an open,
+    read-only transaction, this function always succeeds.
+    
+    Wraps [mdb\_txn\_reset()](http://www.lmdb.tech/doc/group__mdb.html#ga02b06706f8a66249769503c4e88c56cd).
+
+### Nesting transactions
+
+Transactions can be nested to arbitrary levels by dynamically
+nesting WITH-TXNs. Child transactions may be committed or aborted
+independently from their parent transaction (the immediately
+enclosing WITH-TXN). Committing a child transaction only makes the
+updates made by it visible to the parent. If the parent then aborts,
+the child's updates are aborted too. If the parent commits, all
+child transactions that were not aborted are committed, too.
+
+Actually, the C lmdb library only supports nesting write
+transactions. To simplify usage, the Lisp side turns read-only
+WITH-TXNs nested in another WITH-TXNs into noops.
+
+```
+(with-temporary-env (env)
+  (let ((db (get-db "test" :if-does-not-exist :create
+                    :value-encoding :uint64)))
+    ;; Create a top-level write transaction.
+    (with-txn (:write t)
+      (put db "p" 0)
+      ;; First child transaction
+      (with-txn (:write t)
+        ;; Writes of the parent are visible in children.
+        (assert (= (g3t db "p") 0))
+        (put db "c1" 1))
+      ;; Parent sees what the child committed (but it's not visible to
+      ;; unrelated transactions).
+      (assert (= (g3t db "c1") 1))
+      ;; Second child transaction
+      (with-txn (:write t)
+        ;; Sees writes from the parent that came from the first child.
+        (assert (= (g3t db "c1") 1))
+        (put db "c1" 2)
+        (put db "c2" 2)
+        (abort-txn)))
+    ;; Create a top-level read transaction to check what was committed.
+    (with-txn ()
+      ;; Since the second child aborted, its writes are discarded.
+      (assert (= (g3t db "p") 0))
+      (assert (= (g3t db "c1") 1))
+      (assert (null (g3t db "c2"))))))
+```
+
+COMMIT-TXN, ABORT-TXN, and RESET-TXN all close the transaction (see
+OPEN-TXN-P), which prevents database operations such as G3T, PUT,
+DEL within that transaction. Furthermore, any cursors created in the
+context of the transaction will no longer be valid (but see
+CURSOR-RENEW).
+
+An LMDB parent transaction and its @CURSORS must not issue
+operations other than COMMIT-TXN and ABORT-TXN while there are
+active child transactions. As the Lisp side does not expose
+transaction objects directly, performing @BASIC-OPERATIONS in the
+parent transaction is not possible. See the description of
+MULTITHREADED NIL case of WITH-CURSOR for a more complete picture.
+
+IGNORE-PARENT true overrides the default nesting semantics of
+WITH-TXN and creates a new top-level transaction, which is not a
+child of the enclosing WITH-TXN.
+
+- Since LMDB is single-writer, on nesting an IGNORE-PARENT write
+  transaction in another write transaction, LMDB-BAD-TXN-ERROR is
+  signalled to avoid the deadlock.
+
+- Nesting a read-only WITH-TXN with IGNORE-PARENT in another
+  read-only WITH-TXN is LMDB-BAD-RSLOT-ERROR error with the TLS
+  option because it would create two read-only transactions in the
+  same thread.
+
+Nesting a read transaction in another transaction would be an
+LMDB-BAD-RSLOT-ERROR according to the C lmdb library, but a
+read-only WITH-TXN with IGNORE-PARENT nested in another WITH-TXN is
+turned into a noop so this edge case is papered over.
+
+## Databases
+
+### The unnamed database
+
+LMDB has a default, unnamed database backed by a B+ tree. This db
+can hold normal key-value pairs and named databases. The unnamed
+database can be accessed by passing NIL as the database name to
+GET-DB. There are some restrictions on the flags of the unnamed
+database, see LMDB-INCOMPATIBLE-ERROR.
+
+### DUPSORT
+
+A prominent feature of LMDB is the ability to associate multiple
+sorted values with keys, which is enabled by the DUPSORT argument of
+GET-DB. Just as a named database is a B+ tree associated with a
+key (its name) in the B+ tree of the unnamed database, so do these
+sorted duplicates form a B+ tree under a key in a named or the
+unnamed database. Among the @BASIC-OPERATIONS, PUT and DEL are
+equipped to deal with duplicate values, but G3T is too limited, and
+@CURSORS are needed to make full use of DUPSORT.
+
+When using this feature the limit on the maximum key size applies to
+duplicate data, as well. See ENV-MAX-KEY-SIZE.
+
+### Database API
+
+- [function] GET-DB NAME &KEY (ENV \*ENV\*) (IF-DOES-NOT-EXIST :ERROR) KEY-ENCODING VALUE-ENCODING INTEGER-KEY REVERSE-KEY DUPSORT INTEGER-DUP REVERSE-DUP DUPFIXED
+
+    Open the database with NAME in the open environment ENV, and return
+    a DB object. If NAME is NIL, then the @UNNAMED-DATABASE is opened.
+    Must not be called from an open transaction. This is because GET-DB
+    starts a transaction itself to comply with C lmdb's
+    requirements (see @SAFETY).
+    
+    If IF-DOES-NOT-EXIST is :CREATE, then a new named database is
+    created. If IF-DOES-NOT-EXIST is :ERROR, then an error is signalled
+    if the database does not exists.
+    
+    KEY-ENCODING and VALUE-ENCODING are both one of NIL, :UINT64,
+    :OCTETS or :UTF-8. KEY-ENCODING is set to :UINT64 when INTEGER-KEY
+    is true. VALUE-ENCODING is set to :UINT64 when INTEGER-DUP is true.
+    Note that changing the encoding does *not* reencode already existing
+    data. encoding. See @ENCODINGS for their full semantics.
+    
+    The recommended practice is to open a database in a process once, in
+    an initial read-only transaction, which commits. This leaves the db
+    open for use with later transactions.
+    
+    The following flags are for database creation, they do not have any
+    effect in subsequent calls (except for the @UNNAMED-DATABASE).
+    
+    - INTEGER-KEY: Keys in the database are C `unsigned` or `size_t`
+      integers encoded in native byte order. Keys must all be either
+      `unsigned` or `size_t`, they cannot be mixed in a single database.
+    
+    - REVERSE-KEY: Keys are strings to be compared in reverse order,
+      from the end of the strings to the beginning. By default, keys are
+      treated as strings and compared from beginning to end.
+    
+    - DUPSORT: Duplicate keys may be used in the database (or, from
+      another perspective, keys may have multiple values, stored in
+      sorted order). By default, keys must be unique and may have only a
+      single value. Also, see @DUPSORT.
+    
+    - INTEGER-DUP: This option specifies that duplicate data items are
+      binary integers, similarly to INTEGER-KEY. Only matters if
+      DUPSORT.
+    
+    - REVERSE-DUP: This option specifies that duplicate data items
+      should be compared as strings in reverse order. Only matters if
+      DUPSORT.
+    
+    - DUPFIXED: This flag may only be used in combination DUPSORT. When
+      true, data items for this database must all be the same size,
+      which allows further optimizations in storage and retrieval.
+      Currently, the wrapper functions that could take advantage of
+      this (e.g. PUT, CURSOR-PUT, CURSOR-NEXT and CURSOR-VALUE), do not.
+    
+    No function to close a database (an equivalent to
+    [mdb\_dbi\_close()](http://www.lmdb.tech/doc/group__mdb.html#ga52dd98d0c542378370cd6b712ff961b5))
+    is provided due to subtle races and corruption it could cause when
+    an `MDB_dbi` (unsigned integer, similar to an fd) is assigned by a
+    subsequent open to another named database.
+    
+    Wraps [mdb\_dbi\_open()](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a).
+
+- [class] DB
+
+    A database in an environment (class ENV). Always to
+    be created by GET-DB.
+
+- [reader] DB-NAME DB (:NAME)
+
+    The name of the database.
+
+- [function] DROP-DB NAME &KEY (DELETE T) (ENV \*ENV\*)
+
+    Empty the database with NAME in ENV. If DELETE, then delete it from
+    ENV and close it. Since closing a database is dangerous (see
+    GET-DB), to minimize the chance of races, DROP-DB opens the *closed*
+    environment ENV itself.
+    
+    Wraps [mdb\_drop()](http://www.lmdb.tech/doc/group__mdb.html#gab966fab3840fc54a6571dfb32b00f2db).
+
+- [function] DB-STATISTICS DB
+
+    Return statistics about the database.
+    
+    Wraps [mdb\_stat()](http://www.lmdb.tech/doc/group__mdb.html#gae6c1069febe94299769dbdd032fadef6).
+
+## Encoding and decoding data
+
+In the C lmdb library, keys and values are opaque byte vectors
+only ever inspected internally to maintain the sort order (of keys
+and duplicate values if @DUPSORT). The client is given the freedom
+and the responsibility to choose how to perform conversion to and
+from byte vectors.
+
+LMDB exposes this full flexibility while at the same time providing
+reasonable defaults for the common cases. In particular, with the
+KEY-ENCODING and VALUE-ENCODING arguments of GET-DB, the
+data (meaning the key or value here) encoding can be declared
+explicitly. The following values are supported:
+
+- :UINT64: Data to be encoded must be of type '(UNSIGNED-BYTE 64)\`,
+  which is then encoded as an 8 byte array in *native* byte order.
+  The reverse transformation takes place when returning values. This
+  is the encoding used for INTEGER-KEY and INTEGER-DUP DBs.
+
+- :OCTETS: Note that plural. Data to be encoded (e.g. KEY argument
+  of G3T) must be a 1D byte array. If its element type
+  is `(UNSIGNED-BYTE 8)`, then the data can be passed to the foreign
+  code more efficiently, but declaring the element type is not
+  required. For example, VECTORs can be used as long as the actual
+  elements are of type `(UNSIGNED-BYTE 8)`. Foreign byte arrays to
+  be decoded (e.g. the value returned by G3T) are simply returned as
+  a Lisp array.
+
+- :UTF-8: Data to be encoded must be a string, which is converted to
+  a octets by TRIVIAL-UTF-8. Null-terminated. Foreign byte arrays
+  are decoded the same way.
+
+- NIL: Data is encoded using the default encoding according to its
+  Lisp type: strings as :UTF-8, vectors as :OCTETS, `(UNSIGNED-BYTE
+  64)` as :UINT64. Decoding is always performed as :OCTETS.
+
+Even if the encoding is undeclared, it is recommended to use a
+single type for keys (and duplicate values) to avoid unexpected
+conflicts that could arise, for example, when the UTF-8 encoding of
+a string and the :UINT64 encoding of an integer coincide. The same
+consideration doubly applies to named databases, which share the key
+space with normal key-value pairs in the default database.
+
+Together, :UINT64 and :UTF-8 cover the common cases for keys. They
+trade off dynamic typing for easy sortability (using the default C
+lmdb behaviour). On the other hand, non-duplicate values (i.e. no
+@DUPSORT), for which there is no sorting requirement, may be
+serialized more freely. For this purpose, using an encoding of
+:OCTETS or NIL with
+[cl-conspack](https://github.com/conspack/cl-conspack) is
+recommended because it works with complex objects, it encodes object
+types, it is fast and space-efficient, has a stable specification
+and an alternative implementation in C. For example:
+
+```
+(with-temporary-env (env)
+  (let ((db (get-db "test" :if-does-not-exist :create)))
+    (with-txn (:write t)
+      (put db "key1" (cpk:encode (list :some "stuff" 42)))
+      (cpk:decode (g3t db "key1")))))
+=> (:SOME "stuff" 42)
+```
+
+
+### Special encodings
+
+- [variable] *KEY-ENCODER* NIL
+
+    A function designator or NIL. If non-NIL, it overrides the encoding
+    method determined by KEY-ENCODING (see GET-DB). It is called with a
+    single argument when a key is to be converted to an octet vector.
+
+- [variable] *KEY-DECODER* NIL
+
+    A function designator or NIL. If non-NIL, it is called with a
+    single MDB-VAL argument (see WITH-MDB-VAL-SLOTS), that holds a
+    pointer to data to be decoded and its size. This function is called
+    whenever a key is to be decoded and overrides the KEY-ENCODING
+    argument of GET-DB.
+    
+    For example, if we are only interested in the length of the value
+    and want to avoid creating a lisp vector on the heap, we can do
+    this:
+    
+    ```
+    (with-temporary-env (env)
+      (let ((db (get-db "test" :if-does-not-exist :create)))
+        (with-txn (:write t)
+          (put db "key1" "abc")
+          (let ((*value-decoder* (lambda (mdb-val)
+                                   (with-mdb-val-slots (%bytes size mdb-val)
+                                     (declare (ignore %bytes))
+                                     ;; Take null termination into account.
+                                     (1- size)))))
+            (g3t db "key1")))))
+    => 3
+    => T
+    ```
+
+
+- [variable] *VALUE-ENCODER* NIL
+
+    Like *KEY-ENCODER*, but for values.
+
+- [variable] *VALUE-DECODER* NIL
+
+    Like *KEY-DECODER*, but for values.
+    
+    Apart from performing actual decoding, the main purpose of
+    *VALUE-DECODER*, one can also pass the foreign data on to other
+    foreign functions such as `write()` directly from the decoder
+    function and returning a constant such as T to avoid consing.
+
+- [macro] WITH-MDB-VAL-SLOTS (%BYTES SIZE MDB-VAL) &BODY BODY
+
+    Bind %BYTES and SIZE locally to the corresponding slots of MDB-VAL.
+    MDB-VAL is an opaque handle for a foreign `MDB_val` struct, that
+    holds the pointer to a byte array and the number of bytes in the
+    array. This macro is needed to access the foreign data in a function
+    used as *KEY-DECODER* or *VALUE-DECODER*. MDB-VAL is dynamic extent,
+    so don't hold on to it. Also, the pointer to which %BYTES is bound
+    is valid only within the context of current top-level transaction.
+
+- [function] %BYTES-TO-OCTETS MDB-VAL
+
+    A utility function provided for writing *KEY-DECODER* and
+    *VALUE-DECODER* functions. It returns a Lisp octet vector that holds
+    the same bytes as MDB-VAL.
+
+## Basic operations
+
+- [function] G3T DB KEY
+
+    Return the value from DB associated with KEY and T as the second
+    value. If KEY is not found in DB, then NIL is returned. If DB
+    supports @DUPSORT, then the first value for KEY will be returned.
+    Retrieval of other values requires the use of @CURSORS.
+    
+    This function is called G3T instead of GET to avoid having to shadow
+    CL:GET when importing LMDB.
+    
+    Wraps [mdb\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga8bf10cd91d3f3a83a34d04ce6b07992d).
+
+- [function] PUT DB KEY VALUE &KEY (OVERWRITE T) (DUPDATA T) APPEND APPEND-DUP
+
+    Add a KEY, VALUE pair to DB within TXN (which must support writes).
+    Return VALUE.
+    
+    - OVERWRITE: If NIL, signal LMDB-KEY-EXISTS-ERROR if KEY already
+      appears in DB.
+    
+    - DUPDATA: If NIL, signal LMDB-KEY-EXISTS-ERROR if the KEY, VALUE
+      pair already appears in DB. Has no effect if DB doesn't have
+      DUPSORT.
+    
+    - APPEND: Append the KEY, VALUE pair to the end of DB instead of
+      finding KEY's location in the B+ tree by performing comparisons.
+      The client effectively promises that keys are inserted in sort
+      order, which allows for fast bulk loading. If the promise is
+      broken, a LMDB-KEY-EXISTS-ERROR is signalled.
+    
+    - APPEND-DUP: The client promises that duplicate values are inserted
+      in sort order. If the promise is broken, a LMDB-KEY-EXISTS-ERROR
+      is signalled.
+    
+    May signal LMDB-MAP-FULL-ERROR, LMDB-TXN-FULL-ERROR,
+    LMDB-TXN-READ-ONLY-ERROR.
+    
+    Wraps [mdb\_put()](http://www.lmdb.tech/doc/group__mdb.html#ga4fa8573d9236d54687c61827ebf8cac0).
+
+- [function] DEL DB KEY &KEY VALUE
+
+    Delete KEY from DB. Returns T if data was deleted, NIL otherwise.
+    If DB supports sorted duplicates (@DUPSORT), then VALUE is taken
+    into account: if it's NIL, then all duplicate values for KEY are
+    deleted, if it's not NIL, then only the matching value. May signal
+    LMDB-TXN-READ-ONLY-ERROR.
+    
+    Wraps [mdb\_del()](http://www.lmdb.tech/doc/group__mdb.html#gab8182f9360ea69ac0afd4a4eaab1ddb0).
+
+## Cursors
+
+- [macro] WITH-CURSOR (VAR DB &KEY MULTITHREADED) &BODY BODY
+
+    Bind VAR to a fresh CURSOR on DB. Execute BODY, then close the
+    cursor. Within the dynamic extent of BODY, this will be the
+    @DEFAULT-CURSOR. The cursor is tied to the @ACTIVE-TRANSACTION.
+    
+    If MULTITHREADED is NIL, LMDB-CURSOR-THREAD-ERROR is signalled if
+    the cursor is accessed from threads other than the one in which it
+    was created.
+    
+    If MULTITHREADED is true, this safety check is disabled and code is
+    trusted to never access the cursor when the dynamic extent of the
+    corresponding WITH-CURSOR is left. If the code performs its own
+    synchronization to ensure that the cursor is live, then it is safe
+    to use from multiple threads. Note that for read-only transactions -
+    since cursors are tied to transactions - the environment must be
+    opened with :TLS NIL (see OPEN-ENV).
+    
+    MULTITHREADED true signals LMDB-CURSOR-THREAD-ERROR in write
+    transactions because they must never be accessed accessed by more
+    than one thread.
+    
+    Wraps [mdb\_cursor\_open()](http://www.lmdb.tech/doc/group__mdb.html#ga9ff5d7bd42557fd5ee235dc1d62613aa)
+    and [mdb\_cursor\_close()](http://www.lmdb.tech/doc/group__mdb.html#gad685f5d73c052715c7bd859cc4c05188).
+
+- [macro] WITH-IMPLICIT-CURSOR (DB) &BODY BODY
+
+    Like WITH-CURSOR, but the cursor object is not accessible directly,
+    only through the @DEFAULT-CURSOR mechanism. The cursor is
+    stack-allocated, which eliminates the consing of WITH-CURSOR. Note
+    that stack allocation of cursors in WITH-CURSOR would risk database
+    corruption if the cursor were accessed beyond its dynamic extent.
+    
+    Use WITH-IMPLICIT-CURSOR instead of WITH-CURSOR if a single cursor
+    at a time will suffice. Conversely, use WITH-CURSOR if a second
+    cursor is needed or the MULTITHREADED option is necessary. That is,
+    use
+    
+    ```
+    (with-implicit-cursor (db)
+      (cursor-set-key 1))
+    ```
+    
+    but when two cursor iterate in an interleaved manner, use
+    WITH-CURSOR:
+    
+    ```
+    (with-cursor (c1 db)
+      (with-cursor (c2 db)
+        (cursor-first c1)
+        (cursor-last c2)
+        (if (some-pred (cursor-value c1) (cursor-value c2))
+            (cursor-next c1)
+            (cursor-prev c2))
+        ...))
+    ```
+    
+    Wraps [mdb\_cursor\_open()](http://www.lmdb.tech/doc/group__mdb.html#ga9ff5d7bd42557fd5ee235dc1d62613aa)
+    and [mdb\_cursor\_close()](http://www.lmdb.tech/doc/group__mdb.html#gad685f5d73c052715c7bd859cc4c05188).
+
+- [class] CURSOR STRUCTURE-OBJECT
+
+- [function] CURSOR-DB INSTANCE
+
+- [glossary-term] default cursor
+
+    All operations, described below, that take cursor arguments accept
+    NIL instead of a CURSOR object, in which case the cursor from the
+    immediately enclosing WITH-CURSOR or WITH-IMPLICIT-CURSOR is used.
+    This cursor is referred to as the *default cursor*.
+    
+    To reduce syntactic clutter, some operations thus make cursor
+    arguments &OPTIONAL. When this is undesirable - because there are
+    keyword arguments as well - the cursor may be a required argument as
+    in CURSOR-PUT. Still NIL can be passed explicitly.
+
+### Positioning cursors
+
+The following functions *position* or *initialize* a cursor while
+returning the value (*a* value with @DUPSORT) associated with a key,
+or both the key and the value. Initialization is successful if there
+is the cursor points to a key-value pair, which is indicated by the
+last return value being T.
+
+- [function] CURSOR-FIRST &OPTIONAL CURSOR
+
+    Move CURSOR to the first key of its database. Return the key, the
+    value and T, or NIL if the database is empty. If @DUPSORT, position
+    CURSOR on the first value of the first key.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_FIRST](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-FIRST-DUP &OPTIONAL CURSOR
+
+    Move CURSOR to the first duplicate value of the current key. Return
+    the value and T. Return NIL if CURSOR is not positioned.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_FIRST\_DUP](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-LAST &OPTIONAL CURSOR
+
+    Move CURSOR to the last key of its database. Return the key, the
+    value and T, or NIL if the database is empty. If @DUPSORT, position
+    CURSOR on the last value of the last key.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_LAST](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-LAST-DUP &OPTIONAL CURSOR
+
+    Move CURSOR to the last duplicate value of the current key. Return
+    the value and T. Return NIL if CURSOR is not positioned.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_LAST\_DUP](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-NEXT &OPTIONAL CURSOR
+
+    Move CURSOR to the next key-value pair of its database and return
+    the key, the value, and T. Return NIL if there is no next item. If
+    @DUPSORT, position CURSOR on the next value of the current key if
+    exists, else the first value of next key. If CURSOR is
+    uninitialized, then CURSOR-FIRST is called on it first.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_NEXT](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-NEXT-NODUP &OPTIONAL CURSOR
+
+    Move CURSOR to the first value of next key pair of its
+    database (skipping over duplicate values of the current key). Return
+    the key, the value and T. Return NIL if there is no next item. If
+    CURSOR is uninitialized, then CURSOR-FIRST is called on it first.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_NEXT\_NODUP](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-NEXT-DUP &OPTIONAL CURSOR
+
+    Move CURSOR to the next value of current key pair of its database.
+    Return the value and T. Return NIL if there is no next value. If
+    CURSOR is uninitialized, then CURSOR-FIRST is called on it first.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_NEXT\_DUP](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-PREV &OPTIONAL CURSOR
+
+    Move CURSOR to the previous key-value pair of its database.
+    Return the key, the value and T. Return NIL if there is no previous
+    item. If @DUPSORT, position CURSOR on the previous value of the
+    current key if exists, else the last value of previous key. If
+    CURSOR is uninitialized, then CURSOR-LAST is called on it first.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_PREV](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-PREV-NODUP &OPTIONAL CURSOR
+
+    Move CURSOR to the last value of previous key pair of its
+    database (skipping over duplicate values of the current and the
+    previous key). Return the key, the value, and T. Return NIL if
+    there is no prev item. If CURSOR is uninitialized, then CURSOR-LAST
+    is called on it first.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_PREV\_NODUP](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-PREV-DUP &OPTIONAL CURSOR
+
+    Move CURSOR to the previous duplicate value of current key pair of
+    its database. Return the value and T. Return NIL if there is no prev
+    value. If CURSOR is uninitialized, then CURSOR-LAST is called on it
+    first.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_PREV\_DUP](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-SET-KEY KEY &OPTIONAL CURSOR
+
+    Move CURSOR to KEY of its database. Return the corresponding value
+    and T. Return NIL if KEY was not found. If @DUPSORT, position CURSOR
+    on the first value of KEY.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_SET\_KEY](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-SET-KEY-DUP KEY VALUE &OPTIONAL CURSOR
+
+    Move CURSOR to the KEY, VALUE pair of its database and return T on
+    success. Return NIL if the pair was not found.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_GET\_BOTH](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-SET-RANGE KEY &OPTIONAL CURSOR
+
+    Position CURSOR on the first key equal to or greater than KEY.
+    Return the found key, the value and T. Return NIL if KEY was not
+    found. If @DUPSORT, position CURSOR on the first value of the found
+    key.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_SET\_RANGE](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-SET-RANGE-DUP KEY VALUE &OPTIONAL CURSOR
+
+    Position CURSOR exactly at KEY on the first value greater than or
+    equal to VALUE. Return the value at the position and T on success,
+    or NIL if there is no such value associated with KEY.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_GET\_BOTH\_RANGE](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+### Basic cursor operations
+
+The following operations are similar to G3T, PUT, DEL (the
+@BASIC-OPERATIONS), but G3T has three variants (CURSOR-KEY-VALUE,
+CURSOR-KEY, and CURSOR-VALUE). All of them require the cursor to be
+positioned (see @POSITIONING-CURSORS).
+
+- [function] CURSOR-KEY-VALUE &OPTIONAL CURSOR
+
+    Return the key and value CURSOR is positioned at and T. Return NIL
+    if CURSOR is uninitialized.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_GET\_CURRENT](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-KEY &OPTIONAL CURSOR
+
+    Return the key CURSOR is positioned at and T. Return NIL if CURSOR
+    is uninitialized.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_GET\_CURRENT](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-VALUE &OPTIONAL CURSOR
+
+    Return the value CURSOR is positioned at and T. Return NIL if
+    CURSOR is uninitialized.
+    
+    Wraps [mdb\_cursor\_get()](http://www.lmdb.tech/doc/group__mdb.html#ga48df35fb102536b32dfbb801a47b4cb0)
+    with [MDB\_GET\_CURRENT](http://www.lmdb.tech/doc/group__mdb.html#ga1206b2af8b95e7f6b0ef6b28708c9127).
+
+- [function] CURSOR-PUT KEY VALUE CURSOR &KEY CURRENT (OVERWRITE T) (DUPDATA T) APPEND APPEND-DUP
+
+    Like PUT, store key-value pairs into CURSOR's database.
+    CURSOR is positioned at the new item, or on failure usually near it.
+    Return VALUE.
+    
+    - CURRENT: Replace the item at the current cursor position. KEY must
+      still be provided, and must match it. If using sorted
+      duplicates (@DUPSORT), VALUE must still sort into the same place.
+      This is intended to be used when the new data is the same size as
+      the old. Otherwise it will simply perform a delete of the old
+      record followed by an insert.
+    
+    - OVERWRITE: If NIL, signal KEY-EXISTS-ERROR if KEY already appears
+      in CURSOR-DB.
+    
+    - DUPDATA: If NIL, signal KEY-EXISTS-ERROR if the KEY, VALUE pair
+      already appears in DB. Has no effect if CURSOR-DB doesn't have
+      @DUPSORT.
+    
+    - APPEND: Append the KEY, VALUE pair to the end of CURSOR-DB instead
+      of finding KEY's location in the B+ tree by performing
+      comparisons. The client effectively promises that keys are
+      inserted in sort order, which allows for fast bulk loading. If the
+      promise is broken, a KEY-EXISTS-ERROR is signalled.
+    
+    - APPEND-DUP: The client promises that duplicate values are inserted
+      in sort order. If the promise is broken, a KEY-EXISTS-ERROR is
+      signalled.
+    
+    May signal LMDB-MAP-FULL-ERROR, LMDB-TXN-FULL-ERROR,
+    LMDB-TXN-READ-ONLY-ERROR.
+    
+    Wraps [mdb\_cursor\_put()](http://www.lmdb.tech/doc/group__mdb.html#ga1f83ccb40011837ff37cc32be01ad91e).
+
+- [function] CURSOR-DEL CURSOR &KEY DELETE-DUPS
+
+    Delete the key-value pair CURSOR is positioned at. This does not
+    invalidate the cursor, so operations such as CURSOR-NEXT can still
+    be used on it. Both CURSOR-NEXT and CURSOR-KEY-VALUE will return the
+    same record after this operation. If CURSOR is not initialized,
+    LMDB-CURSOR-UNINITIALIZED-ERROR is signalled. Returns no values.
+    
+    If DELETE-DUPS, delete all duplicate values that belong to the
+    current key. With DELETE-DUPS, CURSOR-DB must have @DUPSORT, else
+    LMDB-INCOMPATIBLE-ERROR is signalled.
+    
+    May signal LMDB-CURSOR-UNINITIALIZED-ERROR,
+    LMDB-TXN-READ-ONLY-ERROR.
+    
+    Wraps [mdb\_cursor\_del()](http://www.lmdb.tech/doc/group__mdb.html#ga26a52d3efcfd72e5bf6bd6960bf75f95).
+
+### Miscellaneous cursor operations
+
+- [function] CURSOR-RENEW &OPTIONAL CURSOR
+
+    Associate CURSOR with read-only TXN as if it had been created with
+    that transaction to begin with to avoid allocation overhead.
+    CURSOR-DB stays the same. This may be done whether the previous
+    transaction is open or closed (see OPEN-TXN-P). No values are
+    returned.
+    
+    Wraps [mdb\_cursor\_renew()](http://www.lmdb.tech/doc/group__mdb.html#gac8b57befb68793070c85ea813df481af).
+
+- [function] CURSOR-COUNT &OPTIONAL CURSOR
+
+    Return the number of duplicate values for the current key of
+    CURSOR. If CURSOR-DB doesn't have @DUPSORT, LMDB-INCOMPATIBLE-ERROR
+    is signalled. If CURSOR is not initialized,
+    LMDB-CURSOR-UNINITIALIZED-ERROR is signalled.
+    
+    Wraps [mdb\_cursor\_count()](http://www.lmdb.tech/doc/group__mdb.html#ga4041fd1e1862c6b7d5f10590b86ffbe2).
+
+- [macro] DO-CURSOR (KEY-VAR VALUE-VAR CURSOR &KEY FROM-END NODUP) &BODY BODY
+
+    Iterate over key-value pairs starting from the position of CURSOR.
+    If CURSOR is not positioned then no key-value pairs will be seen. If
+    FROM-END, then iterate with CURSOR-PREV instead of CURSOR-NEXT. If
+    NODUP, then make that CURSOR-PREV-NODUP and CURSOR-NEXT-NODUP.
+    
+    If CURSOR is NIL, the @DEFAULT-CURSOR is used.
+    
+    If NODUP and not FROM-END, then the first duplicate of each key will
+    be seen. If NODUP and FROM-END, then the last duplicate of each key
+    will be seen.
+    
+    To iterate over all key-value pairs with keys >= 7:
+    
+    ```
+    (with-cursor (cursor db)
+      (cursor-set-key 7 cursor)
+      (do-cursor (key value cursor)
+        (print (cons key value))))
+    ```
+
+
+- [macro] DO-CURSOR-DUP (VALUE-VAR CURSOR &KEY FROM-END) &BODY BODY
+
+    Iterate over duplicate values with starting from the position of
+    CURSOR. If CURSOR is not positioned then no values will be seen. If
+    FROM-END, then iterate with CURSOR-PREV-DUP instead of
+    CURSOR-NEXT-DUP.
+    
+    If CURSOR is NIL, the @DEFAULT-CURSOR is used.
+    
+    To iterate over all values that not smaller than #(3 4 5),
+    associated with the key 7:
+    
+    ```
+    (with-cursor (cursor db)
+      (cursor-set-key-dup cursor 7 #(3 4 5))
+      (do-cursor-dup (value cursor)
+        (print value)))
+    ```
+
+
+- [macro] DO-DB (KEY-VAR VALUE-VAR DB &KEY FROM-END NODUP) &BODY BODY
+
+    Iterate over all keys and values in DB. If NODUP, then all but the
+    first (or last if FROM-END) value for each key are skipped. If
+    FROM-END, then iterate in reverse order.
+    
+    To iterate over all values in DB:
+    
+    ```
+    (do-db (key value db)
+      (print (cons key value)))
+    ```
+
+
+- [macro] DO-DB-DUP (VALUE-VAR DB KEY &KEY FROM-END) &BODY BODY
+
+    Iterate over all values associated with KEY in DB. If FROM-END,
+    then iteration starts at the largest value.
+    
+    To iterate over all values associated with the key 7:
+    
+    ```
+    (do-db-dup (value db 7)
+      (print value))
+    ```
+
+
+## Conditions
+
+- [condition] LMDB-SERIOUS-CONDITION SERIOUS-CONDITION
+
+    The base class of all LMDB conditions. Conditions
+    that are LMDB-SERIOUS-CONDITIONs, but not LMDB-ERRORs are corruption
+    and internal errors, which are hard to recover from.
+
+- [condition] LMDB-ERROR LMDB-SERIOUS-CONDITION ERROR
+
+    Base class for normal, recoverable LMDB errors.
+
+### Conditions for C lmdb error codes
+
+The following conditions correspond to [C lmdb error
+codes](http://www.lmdb.tech/doc/group__errors.html).
+
+- [condition] LMDB-KEY-EXISTS-ERROR LMDB-ERROR
+
+    Key-value pair already exists. Signalled by PUT
+    and CURSOR-PUT.
+
+- [condition] LMDB-NOT-FOUND-ERROR LMDB-ERROR
+
+    Key-value pair does not exist. All functions (G3T,
+    CURSOR-NEXT, ...) should return NIL instead of signalling this
+    error. If it is signalled, that's a bug.
+
+- [condition] LMDB-PAGE-NOT-FOUND-ERROR LMDB-SERIOUS-CONDITION
+
+    Requested page not found - this usually indicates
+    corruption.
+
+- [condition] LMDB-CORRUPTED-ERROR LMDB-SERIOUS-CONDITION
+
+    Located page was wrong type.
+
+- [condition] LMDB-PANIC-ERROR LMDB-SERIOUS-CONDITION
+
+    Update of meta page failed or environment had fatal
+    error.
+
+- [condition] LMDB-VERSION-MISMATCH-ERROR LMDB-ERROR
+
+    Environment version mismatch.
+
+- [condition] LMDB-INVALID-ERROR LMDB-SERIOUS-CONDITION
+
+    File is not a valid LMDB file.
+
+- [condition] LMDB-MAP-FULL-ERROR LMDB-ERROR
+
+    ENV-MAP-SIZE reached. Reopen the environment with a
+    larger :MAP-SIZE.
+
+- [condition] LMDB-DBS-FULL-ERROR LMDB-ERROR
+
+    ENV-MAX-DBS reached. Reopen the environment with a
+    higher :MAX-DBS.
+
+- [condition] LMDB-READERS-FULL-ERROR LMDB-ERROR
+
+    ENV-MAX-READERS reached. Reopen the environment
+    with a higher :MAX-READERS.
+
+- [condition] LMDB-TXN-FULL-ERROR LMDB-ERROR
+
+    TXN has too many dirty pages. This condition is
+    expected to occur only when using nested read-write transactions or
+    operations multiple items (currently not supported by this
+    wrapper).
+
+- [condition] LMDB-CURSOR-FULL-ERROR LMDB-SERIOUS-CONDITION
+
+    Cursor stack too deep - internal error.
+
+- [condition] LMDB-PAGE-FULL-ERROR LMDB-SERIOUS-CONDITION
+
+    Page has not enough space - internal error.
+
+- [condition] LMDB-MAP-RESIZED-ERROR LMDB-ERROR
+
+    Data file contents grew beyond ENV-MAP-SIZE. This
+    can happen if another OS process using the same environment path set
+    a larger map size than this process did.
+
+- [condition] LMDB-INCOMPATIBLE-ERROR LMDB-ERROR
+
+    Operation and DB incompatible, or DB type changed.
+    This can mean:
+    
+    - The operation expects a @DUPSORT or DUPFIXED database.
+    
+    - Opening a named DB when the unnamed DB has DUPSORT or INTEGER-KEY.
+    
+    - Accessing a data record as a database, or vice versa.
+    
+    - The database was dropped and recreated with different flags.
+
+
+- [condition] LMDB-BAD-RSLOT-ERROR LMDB-ERROR
+
+    Invalid reuse of reader locktable slot. May be
+    signalled by WITH-TXN.
+
+- [condition] LMDB-BAD-TXN-ERROR LMDB-ERROR
+
+    Transaction must abort, has a child, or is invalid.
+    Signalled, for example, when a read-only transaction is nested in a
+    read-write transaction, or when a cursor is used whose transaction
+    has been closed (committed, aborted, or reset).
+
+- [condition] LMDB-BAD-VALSIZE-ERROR LMDB-ERROR
+
+    Unsupported size of key/DB name/data, or wrong
+    DUPFIXED, INTEGER-KEY or INTEGER-DUP. See ENV-MAX-KEY-SIZE.
+
+- [condition] LMDB-BAD-DBI-ERROR LMDB-ERROR
+
+    The specified DBI was changed unexpectedly.
+
+### Additional conditions
+
+The following conditions do not have a dedicated C lmdb error
+code.
+
+- [condition] LMDB-CURSOR-UNINITIALIZED-ERROR LMDB-ERROR
+
+    Cursor was not initialized. Position the cursor at
+    a key-value pair with a function like CURSOR-FIRST or
+    CURSOR-SET-KEY. Signalled when some functions return the C error
+    code `EINVAL`.
+
+- [condition] LMDB-CURSOR-THREAD-ERROR LMDB-ERROR
+
+    Cursor was accessed from a thread other than the
+    one in which it was created. Since the foreign cursor object's
+    lifetime is tied to the dynamic extent of its WITH-CURSOR, this
+    might mean accessing garbage in foreign memory with unpredictable
+    consequences. This safety check can be turned off with WITH-CURSOR's
+    MULTITHREADED option. Also signalled if a MULTITHREADED cursor would
+    be created in a write transaction.
+
+- [condition] LMDB-TXN-READ-ONLY-ERROR LMDB-ERROR
+
+    Attempt was made to write in a read-only
+    transaction. Signalled when some functions return the C error code
+    `EACCESS`.
+
+- [condition] LMDB-ILLEGAL-ACCESS-TO-PARENT-TXN-ERROR LMDB-ERROR
+
+    A parent transaction and its cursors may not
+    issue any other operations than COMMIT-TXN and ABORT-TXN while it
+    has active child transactions. In LMDB, @BASIC-OPERATIONS are always
+    executed in the @ACTIVE-TRANSACTION, but @CURSORS can refer to the
+    parent transaction:
+    
+    ```
+    (with-temporary-env (env)
+      (let ((db (get-db "db" :if-does-not-exist :create)))
+        (with-txn (:write t)
+          (put db #(1) #(1))
+          (with-cursor (cursor db)
+            (with-txn (:write t)
+              (assert-error lmdb-illegal-access-to-parent-txn-error
+                (cursor-set-key #(1) cursor)))))))
+    ```
+    
+    Illegal access to a parent transaction is not detected for
+    MULTITHREADED cursors (see WITH-CURSOR) being accessed in another
+    thread.
+
+* * *
+###### \[generated by [MGL-PAX](https://github.com/melisgl/mgl-pax)\]

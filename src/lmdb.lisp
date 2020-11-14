@@ -1263,9 +1263,10 @@
 (defstruct txn
   ;; %TXNA is an aligned pointer converted to a fixnum with
   ;; %ALIGNED-POINTER-TO-FIXNUM, possibly with its sign flipped to
-  ;; %negative if the ;; transaction is reset.
+  ;; %negative if the transaction is reset.
   (%txna 0 :type fixnum)
-  (flags 0 :type fixnum))
+  (flags 0 :type fixnum)
+  (env nil :type env))
 
 (declaim (type (or txn null) *txn*))
 (defvar *txn* nil)
@@ -1390,7 +1391,7 @@
                        (cffi:mem-ref %txnpp :pointer)))))
            (*has-open-write-txn-in-thread*
              (or *has-open-write-txn-in-thread* write)))
-      (let* ((txn (make-txn :%txna %txna :flags flags))
+      (let* ((txn (make-txn :%txna %txna :flags flags :env env))
              (*txn* txn))
         (declare (type txn txn)
                  (dynamic-extent txn))
@@ -1604,7 +1605,6 @@
   (drop-db function)
   (db-statistics function))
 
-;;; FIXME: have an ENV object to keep it from being finalized.
 (defclass db ()
   (;; This is an unsigned int.
    (dbi :initarg :dbi :reader %dbi)
@@ -1613,6 +1613,7 @@
     :initarg :name
     :type string
     :documentation "The name of the database.")
+   (env :initarg :env :reader db-env)
    (key-encoding
     :initarg :key-encoding
     :reader db-key-encoding)
@@ -1717,7 +1718,8 @@
                                                    flags %dbip)))
                (alexandria:switch (return-code)
                  (0 (make-instance 'db :dbi (cffi:mem-ref %dbip :uint)
-                                   :name name :key-encoding key-encoding
+                                   :name name :env env
+                                   :key-encoding key-encoding
                                    :value-encoding value-encoding))
                  (liblmdb:+notfound+
                   (ecase if-does-not-exist

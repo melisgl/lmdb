@@ -2836,7 +2836,8 @@
   (do-cursor macro)
   (do-cursor-dup macro)
   (do-db macro)
-  (do-db-dup macro))
+  (do-db-dup macro)
+  (list-dups function))
 
 (defun cursor-renew (&optional cursor)
   "Associate CURSOR with the @ACTIVE-TRANSACTION (which must be
@@ -2965,8 +2966,17 @@
   ```"
   (alexandria:once-only (from-end)
     `(with-implicit-cursor (,db)
-       (cursor-set-key ,key)
-       (when ,from-end
-         (cursor-last-dup))
-       (do-cursor-dup (,value-var *default-cursor* :from-end ,from-end)
-         ,@body))))
+       (when (nth-value 1 (cursor-set-key ,key))
+         (when ,from-end
+           (cursor-last-dup))
+         (do-cursor-dup (,value-var *default-cursor* :from-end ,from-end)
+           ,@body)))))
+
+(defun list-dups (db key &key from-end)
+  "A thin wrapper around DO-DB-DUP, this function returns all values
+  associated with KEY in DB as a list. If FROM-END, then the first
+  element of the list is the largest value."
+  (let ((dups ()))
+    (do-db-dup (value db key :from-end from-end)
+      (push value dups))
+    (reverse dups)))

@@ -4,8 +4,8 @@
   (require :sb-sprof))
 
 (defun test-string-perf ()
-  (progn;sb-sprof:with-profiling (:report :graph)
-    (with-temporary-env (env)
+  (progn                     ;sb-sprof:with-profiling (:report :graph)
+    (with-temporary-env (*env* :synchronized nil)
       (let ((db (get-db "db" :if-does-not-exist :create
                         :value-encoding :utf-8)))
         (declare (optimize speed))
@@ -14,7 +14,7 @@
           (with-txn (:write t)
             (put db k v))
           (time
-           (loop repeat 10000000 do
+           (loop repeat 3000000 do
              (with-txn ()
                (g3t db k)))))))))
 
@@ -24,7 +24,7 @@
   (test-string-perf))
 
 (defun test-octets-write-perf ()
-  (with-temporary-env (env :sync t :meta-sync nil)
+  (with-temporary-env (*env* :sync t :meta-sync nil)
     (let ((db (get-db "db" :if-does-not-exist :create)))
       (declare (optimize speed))
       (progn                 ;sb-sprof:with-profiling (:report :graph)
@@ -39,7 +39,7 @@
 (test-octets-write-perf)
 
 (defun test-octets-perf ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "db" :if-does-not-exist :create)))
       (declare (optimize speed))
       (let ((k (make-array 100 :element-type 'lmdb::octet))
@@ -58,7 +58,7 @@
   (test-octets-perf))
 
 (defun test-cursor-perf ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "db" :if-does-not-exist :create)))
       (declare (optimize speed))
       (let ((k (make-array 100 :element-type 'lmdb::octet))
@@ -78,7 +78,7 @@
   (test-cursor-perf))
 
 (defun test-implicit-cursor-perf ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "db" :if-does-not-exist :create)))
       (declare (optimize speed))
       (let ((k (make-array 100 :element-type 'lmdb::octet))
@@ -118,7 +118,7 @@
 #+nil
 (defun test-manual-cpk-perf ()
   (sb-sprof:with-profiling (:report :graph)
-    (with-temporary-env (env)
+    (with-temporary-env (*env*)
       (let ((db (get-db "db" :if-does-not-exist :create)))
         (declare (optimize speed))
         (let ((k 1)

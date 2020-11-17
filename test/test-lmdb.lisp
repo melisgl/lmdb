@@ -1,69 +1,80 @@
 (in-package :lmdb/test)
 
-(defmacro assert-error (condition-type &body body)
-  (alexandria:with-gensyms (got-it)
-    `(let ((,got-it nil))
-       (unwind-protect
-            (handler-case (progn ,@body)
-              (,condition-type ()
-                (setq ,got-it t)))
-         (assert ,got-it () "Didn't get expected ~S." ',condition-type)))))
+(defmacro assert-error ((condition-type &optional substring) &body body)
+  (alexandria:once-only (substring)
+    (alexandria:with-gensyms (got-it c)
+      `(let ((,got-it nil))
+         (unwind-protect
+              (handler-case (progn ,@body)
+                (,condition-type (,c)
+                  (if (or (null ,substring)
+                          (search ,substring
+                                  (with-standard-io-syntax
+                                    (princ-to-string ,c))))
+                      (setq ,got-it t)
+                      (setq ,got-it ,c))))
+           (assert (eq ,got-it t) ()
+                   "~@<Didn't get expected ~S containing ~S. Got a ~S ~
+                    saying ~S.~:@>"
+                   ',condition-type ,substring (type-of ,got-it)
+                   (with-standard-io-syntax
+                     (princ-to-string ,got-it))))))))
 
 (defun test-env ()
-  (let ((env (make-env (make-pathname
-                        :directory (list :absolute
-                                         (lmdb::random-string))))))
-    (assert-error lmdb-error (open-env env)))
+  (let ((path (make-pathname :directory (list :absolute
+                                              (lmdb::random-string)))))
+    (assert-error (lmdb-error) (open-env path)))
   (with-temporary-env (env)
-    (assert-error lmdb-error (open-env env))
+    (assert-error (lmdb-error) (open-env (env-path env)))
     (env-statistics env)
     (env-info env)))
 
 (defun test-open-env-nested ()
   (with-temporary-env (env)
-    (assert-error lmdb-error
-      (with-env (env)))
-    (assert-error lmdb-error
-      (with-env (env)))))
+    (assert-error (lmdb-error)
+      (with-env (*env* (env-path env))))
+    (assert-error (lmdb-error)
+      (with-env (*env* (env-path env))))))
 
 (defun test-open-env-multiple-times ()
   ;; Same ENV cannot be opened twice.
   (with-temporary-env (env)
-    (assert-error lmdb-error (open-env env)))
+    (assert-error (lmdb-error) (open-env (env-path env))))
   ;; Different ENVs pointing to the same file cannot be opened twice.
   (with-temporary-env (env)
-    (let ((env-2 (make-env (merge-pathnames (env-path env) "./"))))
-      (assert-error lmdb-error (with-env (env-2))))))
+    (let ((path (merge-pathnames (env-path env) "./")))
+      (assert-error (lmdb-error) (with-env (*env* path))))))
 
 (defun test-open-env-multiple-times-with-nosubdir ()
   ;; Same ENV cannot be opened twice.
   (with-temporary-env (env :subdir nil)
-    (assert-error lmdb-error (open-env env)))
+    (assert-error (lmdb-error) (open-env (env-path env))))
   ;; Different ENVs pointing to the same file cannot be opened twice.
   (with-temporary-env (env :subdir nil)
-    (let ((env-2 (make-env (env-path env) :subdir nil)))
-      (assert-error lmdb-error (with-env (env-2))))))
+    (assert-error (lmdb-error)
+      (with-env (*env* (env-path env) :subdir nil)))))
 
 (defun test-zero-map-size ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (get-db "db" :if-does-not-exist :create)
-    (close-env env)
-    (setf (slot-value env 'lmdb::map-size) 0)
-    (open-env env)))
+    (close-env *env*)
+    (setf (slot-value *env* 'lmdb::map-size) 0)
+    (setq *env* (open-env (env-path *env*)))))
 
 (defun test-db ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (get-db "db" :if-does-not-exist :create)))
 
 (defun test-drop-db ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (get-db "db" :if-does-not-exist :create)
     (assert (typep (get-db "db")' db))
-    (assert-error lmdb-error (drop-db "db"))
-    (close-env env)
-    (drop-db "db" :env env)
-    (open-env env)
-    (assert-error lmdb-error (get-db "db"))))
+    (assert-error (lmdb-error) (drop-db "db" (env-path *env*)))
+    (close-env *env*)
+    (drop-db "db" (env-path *env*))
+    (setq *env* (open-env (env-path *env*)))
+    (assert-error (lmdb-not-found-error "Database \"db\" not found")
+      (get-db "db"))))
 
 (defun test-db-flags ()
   (loop for (option-keyword flag-value) in
@@ -73,17 +84,30 @@
           (:integer-dup ,liblmdb:+integerdup+)
           (:reverse-dup ,liblmdb:+reversedup+)
           (:dupfixed ,liblmdb:+dupfixed+))
-        do (with-temporary-env (env)
+        do (with-temporary-env (*env*)
              (let ((db (get-db "db" :if-does-not-exist :create
                                option-keyword t)))
                (with-txn ()
                  (assert (= flag-value (lmdb::db-flags db)))))
-             (close-env env)
-             (open-env env)
+             (close-env *env*)
+             (setq *env* (open-env (env-path *env*)))
              (let ((db (get-db "db" :if-does-not-exist :create
                                option-keyword nil)))
                (with-txn ()
                  (assert (= flag-value (lmdb::db-flags db))))))))
+
+(defun test-close-env-in-with-txn ()
+  (with-temporary-env (*env*)
+    (with-txn ()
+      (assert-error (lmdb-error "Cannot close environment within a WITH-TXN.")
+        (close-env *env*)))))
+
+(defun test-close-env-unsynchronized ()
+  (with-temporary-env (*env* :synchronized nil)
+    (with-txn ()
+      (assert-error (lmdb-error "cannot be closed explicitly")
+        (close-env *env*)))
+    (close-env *env* :force t)))
 
 (defun test-queries ()
   (dolist (lmdb::*endianness* '(:little-endian :big-endian))
@@ -110,7 +134,7 @@
                           (make-array 1 :element-type 'lmdb::octet
                                       :initial-contents (list x)))
                          ((:utf-8) (vector (+ (char-code #\0) x) 0))))))
-          (with-temporary-env (env :max-dbs 2)
+          (with-temporary-env (*env* :max-dbs 2)
             (dolist (dupsort '(nil t))
               (let ((db (get-db (format nil "db~A" dupsort)
                                 :if-does-not-exist :create :dupsort dupsort
@@ -121,7 +145,7 @@
                 (with-txn ()
                   (when (not dupsort)
                     (assert (= 1 (txn-id))))
-                  (assert-error lmdb-txn-read-only-error
+                  (assert-error (lmdb-txn-read-only-error)
                     (put db (e 1) (e 2))))
                 (with-txn (:write t)
                   (when (not dupsort)
@@ -135,7 +159,7 @@
                                   (d 3)))
                   (assert (equalp (g3t db (e 3))
                                   (d 4))))
-                (sync-env env)
+                (sync-env)
                 (with-txn ()
                   (when (not dupsort)
                     (assert (= 2 (txn-id))))
@@ -146,7 +170,7 @@
                   (assert (equalp (g3t db (e 3))
                                   (d 4))))
                 (with-txn (:write t)
-                  (assert-error lmdb-key-exists-error
+                  (assert-error (lmdb-key-exists-error)
                     (put db (e 1) (e 7) :overwrite nil))
                   (assert (del db (e 1)))
                   (assert (not (del db (e 1))))
@@ -155,14 +179,26 @@
                   (assert (null (g3t db (e 1))))
                   (put db (e 1) (e 2))
                   (if dupsort
-                      (assert-error lmdb-key-exists-error
+                      (assert-error (lmdb-key-exists-error)
                         (put db (e 1) (e 2) :dupdata nil))
                       (put db (e 1) (e 2) :dupdata nil))
                   (assert (equalp (g3t db (e 1))
                                   (d 2))))))))))))
 
+(defun test-closed-txn ()
+  (with-temporary-env (*env* :max-dbs 2)
+    (let ((db (get-db "db" :if-does-not-exist :create)))
+      (with-txn (:write t)
+        (abort-txn)
+        (assert-error (lmdb-bad-txn-error)
+          (g3t db #(1)))
+        (assert-error (lmdb-bad-txn-error)
+          (put db #(1) #(1)))
+        (assert-error (lmdb-bad-txn-error)
+          (del db #(1)))))))
+
 (defun test-cursor ()
-  (with-temporary-env (env :max-dbs 2)
+  (with-temporary-env (*env* :max-dbs 2)
     (dolist (dupsort '(nil t))
       (let ((db (get-db (format nil "db~A" dupsort)
                         :if-does-not-exist :create :dupsort dupsort)))
@@ -170,9 +206,9 @@
           ;; Empty DB
           (with-cursor (cur db)
             (if dupsort
-                (assert-error lmdb-cursor-uninitialized-error
+                (assert-error (lmdb-cursor-uninitialized-error)
                   (cursor-count cur))
-                (assert-error lmdb-incompatible-error (cursor-count cur)))
+                (assert-error (lmdb-incompatible-error) (cursor-count cur)))
             (assert (equal '(nil) (multiple-value-list
                                    (cursor-set-key #(1) cur))))
             (assert (equal '(nil) (multiple-value-list
@@ -202,7 +238,7 @@
                             (multiple-value-list (cursor-value cur))))
             (if dupsort
                 (assert (= 1 (cursor-count cur)))
-                (assert-error lmdb-incompatible-error (cursor-count cur)))
+                (assert-error (lmdb-incompatible-error) (cursor-count cur)))
             (assert (equalp '(#(3) #(4) t)
                             (multiple-value-list (cursor-next cur))))
             (assert (equalp '(nil)
@@ -226,26 +262,26 @@
                              (cursor-set-range #(1) cur))))))))))
 
 (defun test-cursor-create ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "db" :if-does-not-exist :create)))
       (with-txn ()
         (commit-txn)
-        (assert-error lmdb-bad-txn-error
+        (assert-error (lmdb-bad-txn-error)
           (with-cursor (cur db)
             (setq cur cur))))
       (with-txn ()
         (abort-txn)
-        (assert-error lmdb-bad-txn-error
+        (assert-error (lmdb-bad-txn-error)
           (with-cursor (cur db)
             (setq cur cur))))
       (with-txn ()
         (reset-txn)
-        (assert-error lmdb-bad-txn-error
+        (assert-error (lmdb-bad-txn-error)
           (with-cursor (cur db)
             (setq cur cur)))))))
 
 (defun test-cursor-dup ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "db" :if-does-not-exist :create :dupsort t)))
       (with-txn (:write t)
         (put db #(1) #(2))
@@ -295,7 +331,7 @@
                            (cursor-set-range #(1) cur)))))))))
 
 (defun test-cursor-put-del ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "db" :if-does-not-exist :create :dupsort t)))
       (with-txn (:write t)
         (with-cursor (cur db)
@@ -308,12 +344,11 @@
           (cursor-del cur)
           (assert (= 2 (cursor-count cur)))
           (cursor-del cur :delete-dups t)
-          (assert-error lmdb-cursor-uninitialized-error
+          (assert-error (lmdb-cursor-uninitialized-error)
             (= 0 (cursor-count cur))))))))
 
-
 (defun test-commit-and-cursor ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "db" :if-does-not-exist :create)))
       (with-txn (:write t)
         (put db #(1) #(2))
@@ -321,11 +356,11 @@
           (cursor-set-key #(1) cur)
           (assert (equalp (cursor-value cur) #(2)))
           (commit-txn)
-          (assert-error lmdb-bad-txn-error
+          (assert-error (lmdb-bad-txn-error)
             (cursor-value cur)))))))
 
 (defun test-iteration ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "db" :if-does-not-exist :create :dupsort t)))
       (with-txn (:write t)
         (put db #(1) #(2))
@@ -415,13 +450,13 @@
                             '(#(4 1) #(4))))))))))
 
 (defun test-renew-txn ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "db" :if-does-not-exist :create)))
       (with-txn (:write t)
         (put db #(1) #(2))
         (put db #(3) #(4))
-        (assert-error lmdb-error (reset-txn))
-        (assert-error lmdb-error (renew-txn)))
+        (assert-error (lmdb-error) (reset-txn))
+        (assert-error (lmdb-error) (renew-txn)))
       (with-txn ()
         (assert (equalp (g3t db #(1)) #(2)))
         (assert (open-txn-p))
@@ -433,7 +468,7 @@
         (assert (equalp (g3t db #(3)) #(4)))))))
 
 (defun test-nested-txn ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db (format nil "db") :if-does-not-exist :create)))
       (with-txn (:write t)
         (assert (null (g3t db #(1))))
@@ -455,24 +490,54 @@
       (with-txn ()
         (with-txn ()))
       (with-txn ()
-        (assert-error lmdb-error
+        (assert-error (lmdb-error)
           (with-txn (:write t))))
       (with-txn (:write t)
         (with-txn ())))))
 
+(defun test-nested-txn-with-different-env ()
+  (with-temporary-env (env)
+    (with-txn (:env env :write t)
+      (with-temporary-env (*env*)
+        (let ((db (get-db "db" :if-does-not-exist :create)))
+          (with-txn (:write t)
+            (assert (null (g3t db #(1))))
+            (put db #(5) #(6))
+            (with-txn (:write t)
+              (assert (equalp (g3t db #(5)) #(6)))
+              (put db #(1) #(2))
+              (put db #(3) #(4)))
+            (assert (equalp (g3t db #(1)) #(2)))
+            (assert (equalp (g3t db #(3)) #(4)))
+            (with-txn (:write t)
+              (put db #(1) #(20))
+              (put db #(3) #(40))
+              (abort-txn))
+            (assert (equalp (g3t db #(1)) #(2)))
+            (assert (equalp (g3t db #(3)) #(4))))
+          ;; Nesting read-only transactions nets EINVAL, but we turn some
+          ;; of that into noops.
+          (with-txn ()
+            (with-txn ()))
+          (with-txn ()
+            (assert-error (lmdb-error)
+              (with-txn (:write t))))
+          (with-txn (:write t)
+            (with-txn ())))))))
+
 (defun test-ignore-parent ()
   (dolist (tls '(t nil))
-    (with-temporary-env (env :tls tls)
+    (with-temporary-env (*env* :tls tls)
       ;; This creates a second read transaction and is thus an error with TLS.
       (with-txn ()
         (if tls
-            (assert-error lmdb-bad-rslot-error
+            (assert-error (lmdb-bad-rslot-error)
               (with-txn (:ignore-parent t)))
             (with-txn (:ignore-parent t))))
       ;; Two write transactions like this would deadlock, but we
       ;; detect this on the Lisp side.
       (with-txn (:write t)
-        (assert-error lmdb-bad-txn-error
+        (assert-error (lmdb-bad-txn-error)
           (with-txn (:write t :ignore-parent t))))
       ;; However, having a read and write transaction is possible.
       (with-txn (:write t)
@@ -482,7 +547,7 @@
         (with-txn (:write t :ignore-parent t))))))
 
 (defun test-commit-and-renew-cursor ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "db" :if-does-not-exist :create)))
       (with-txn (:write t)
         (put db #(1) #(2)))
@@ -491,16 +556,16 @@
           (cursor-set-key #(1) cur)
           (assert (equalp (cursor-value cur) #(2)))
           (commit-txn)
-          (assert-error lmdb-bad-txn-error
+          (assert-error (lmdb-bad-txn-error)
             (cursor-value cur))
-          (assert-error lmdb-error
+          (assert-error (lmdb-error)
             (cursor-renew cur))
           (with-txn ()
             (cursor-renew cur)
             (assert (equalp (cursor-set-key #(1) cur) #(2)))))))))
 
 (defun test-abort-and-renew-cursor ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "db" :if-does-not-exist :create)))
       (with-txn (:write t)
         (put db #(1) #(2)))
@@ -509,16 +574,16 @@
           (cursor-set-key #(1) cur)
           (assert (equalp (cursor-value cur) #(2)))
           (abort-txn)
-          (assert-error lmdb-bad-txn-error
+          (assert-error (lmdb-bad-txn-error)
             (cursor-value cur))
-          (assert-error lmdb-error
+          (assert-error (lmdb-error)
             (cursor-renew cur))
           (with-txn ()
             (cursor-renew cur)
             (assert (equalp (cursor-set-key #(1) cur) #(2)))))))))
 
 (defun test-reset-and-renew-cursor ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "db" :if-does-not-exist :create)))
       (with-txn (:write t)
         (put db #(1) #(2)))
@@ -527,35 +592,30 @@
           (cursor-set-key #(1) cur)
           (assert (equalp (cursor-value cur) #(2)))
           (reset-txn)
-          (assert-error lmdb-bad-txn-error
+          (assert-error (lmdb-bad-txn-error)
             (cursor-value cur))
-          (assert-error lmdb-error
+          (assert-error (lmdb-error)
             (cursor-renew cur))
           (renew-txn)
           (cursor-renew cur)
           (assert (equalp (cursor-set-key #(1) cur) #(2))))))))
 
 (defun test-parent-illegal-op ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "db" :if-does-not-exist :create)))
       (with-txn (:write t)
         (put db #(1) #(1))
         (with-cursor (cursor db)
           (with-txn (:write t)
-            (assert-error lmdb-illegal-access-to-parent-txn-error
+            (assert-error (lmdb-illegal-access-to-parent-txn-error)
+              (cursor-set-key #(1) cursor))))
+        (with-cursor (cursor db)
+          (with-temporary-env (env)
+            (with-txn (:write t :env env)
               (cursor-set-key #(1) cursor))))))))
 
-(defun test-writer-single-threadedness ()
-  (with-temporary-env (env)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
-      (with-txn (:write t)
-        (put db #(1) #(1))
-        (assert-error lmdb-cursor-thread-error
-          (with-cursor (cursor db :multithreaded t)
-            (declare (ignore cursor))))))))
-
 (defun test-cursor-txn-reuse ()
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "db" :if-does-not-exist :create)))
       (with-txn (:write t)
         (put db #(1) #(1)))
@@ -563,11 +623,7 @@
         (with-cursor (cursor db)
           (abort-txn)
           (with-txn ()
-            ;; In this test case, the C lmdb would respond with a bad
-            ;; txn error code, but that may be only because the new
-            ;; transaction is not really allocated over the old one.
-            ;; So we test for the error coming from the LMDB.
-            (assert-error lmdb-illegal-access-to-parent-txn-error
+            (assert-error (lmdb-bad-txn-error)
               (cursor-set-key #(1) cursor))))))))
 
 (defun test ()
@@ -579,7 +635,10 @@
   (test-db)
   (test-drop-db)
   (test-db-flags)
+  (test-close-env-in-with-txn)
+  (test-close-env-unsynchronized)
   (test-queries)
+  (test-closed-txn)
   (test-cursor)
   (test-cursor-create)
   (test-cursor-dup)
@@ -588,13 +647,13 @@
   (test-iteration)
   (test-renew-txn)
   (test-nested-txn)
+  (test-nested-txn-with-different-env)
   (test-ignore-parent)
   (test-commit-and-renew-cursor)
   (test-abort-and-renew-cursor)
   (test-reset-and-renew-cursor)
   (test-parent-illegal-op)
-  (test-writer-single-threadedness)
   (test-cursor-txn-reuse))
 
 #+nil
-(test)
+(time (test))

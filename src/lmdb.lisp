@@ -20,14 +20,9 @@
 (defparameter +eacces+ (errno-value :eacces))
 (defparameter +einval+ (errno-value :einval))
 
-;;; Reduce consing.
+;;; Singleton to reduce consing.
 (alexandria:define-constant +null-pointer+ (cffi:null-pointer)
   :test #'cffi:pointer-eq)
-
-(defun make-pointer-to-null-pointer ()
-  (let ((p (cffi:foreign-alloc :pointer)))
-    (setf (cffi:mem-ref p :pointer) +null-pointer+)
-    p))
 
 
 ;;;; Word-aligned pointer <-> FIXNUM
@@ -201,7 +196,7 @@
   Using LMDB is easy:
 
   ```
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "test" :if-does-not-exist :create)))
       (with-txn (:write t)
         (put db "k1" #(2 3))
@@ -216,9 +211,7 @@
   (defvar *test-db*)
 
   (unless *env*
-    (setq *env* (make-env "/tmp/lmdb-test-env/")))
-  (unless (open-env-p *env*)
-    (setq *env* (open-env  *env* :if-does-not-exist :create))
+    (setq *env* (open-env "/tmp/lmdb-test-env/" :if-does-not-exist :create))
     (setq *test-db* (get-db "test" :if-does-not-exist :create
                                    :value-encoding :utf-8)))
 
@@ -257,20 +250,23 @@
     environments to prevent locking issues documented in
     [Caveats](http://www.lmdb.tech/doc/).
 
-  ##### Transactions
+  - CLOSE-ENV waits until all @ACTIVE-TRANSACTIONs are finished before
+    actually closing the environment. Alternatively, if OPEN-ENV was
+    called with :SYNCHRONIZED NIL, to avoid the overhead of
+    synchronization, the environment is closed only when garbage
+    collected.
 
-  - Transactions are not exposed to the client, their lifetime is tied
-    to the dynamic extent of their WITH-TXN. Using transactions from
-    threads other than the thread of their creation is thus not
-    possible. This design allows WITH-TXN to work with zero consing
-    and prevents difficult to diagnose races that could arise with
-    garbage transactions being accessed in other threads. The
-    alternative of locking every access to transaction objects and
-    dealing with their finalization is much too heavyweight. Cursors,
-    described below, offer a way to circumvent this protection.
+  ##### Transactions
 
   - Checks are made to detect illegal operations on parent
     transactions (see LMDB-ILLEGAL-ACCESS-TO-PARENT-TXN-ERROR).
+
+  - Access to closed transactions is reliably detected.
+
+  - C LMDB allows read transactions to be used in multiple threads.
+    The synchronization cost of performing this safely (i.e. without
+    risking access to closed and freed transaction objects) is
+    significant so this is not supported.
 
   ##### Databases
 
@@ -297,17 +293,11 @@
 
   ##### Cursors
 
-  - Unless MULTITHREADED, WITH-CURSOR creates cursors that can be used
-    only in the thread they were created in. Similarly to the
-    rationale above for not exposing transactions, this is to ensure
-    safe and performant access to foreign objects.
-
-  - Note that since cursors are associated with transactions,
-    MULTITHREADED allows access to transactions from other threads if
-    not with @BASIC-OPERATIONS, but with @CURSORS only.
-
-  - Cursors in write transactions cannot use the MULTITHREADED option
-    to accommodate C lmdb restrictions.
+  - As even read transactions are restricted to a single thread, so
+    are cursors. Using a cursor from a thread other than the one in
+    which it was created (i.e. the thread of its transaction) raises
+    LMDB-CURSOR-THREAD-ERROR. In return for this restriction, access
+    to cursors belonging to closed transactions is reliably detected.
 
   ##### Signal handling
 
@@ -610,9 +600,7 @@
   one in which it was created. Since the foreign cursor object's
   lifetime is tied to the dynamic extent of its WITH-CURSOR, this
   might mean accessing garbage in foreign memory with unpredictable
-  consequences. This safety check can be turned off with WITH-CURSOR's
-  MULTITHREADED option. Also signalled if a MULTITHREADED cursor would
-  be created in a write transaction."))
+  consequences."))
 
 (define-condition lmdb-txn-read-only-error (lmdb-error)
   ()
@@ -629,7 +617,7 @@
   parent transaction:
 
   ```
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "db" :if-does-not-exist :create)))
       (with-txn (:write t)
         (put db #(1) #(1))
@@ -637,11 +625,7 @@
           (with-txn (:write t)
             (assert-error lmdb-illegal-access-to-parent-txn-error
               (cursor-set-key #(1) cursor)))))))
-  ```
-
-  Illegal access to a parent transaction is not detected for
-  MULTITHREADED cursors (see WITH-CURSOR) being accessed in another
-  thread."""))
+  ```"""))
 
 
 (defsection @version (:title "Library versions")
@@ -676,14 +660,12 @@
   database in a relational db, and the databases in it are like tables
   and indices. The terminology comes from [Berkeley
   DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html)."
-  (@creating-env section)
+  (@env-reference section)
   (@opening-and-closing-env section)
   (@misc-env section))
 
-(defsection @creating-env (:title "Creating environments")
-  (make-env function)
+(defsection @env-reference (:title "Environments reference")
   (env class)
-  "##### Environment reader functions"
   (env-path (reader env))
   (env-max-dbs (reader env))
   (env-max-readers (reader env))
@@ -691,58 +673,176 @@
   (env-mode (reader env))
   (env-flags (reader env)))
 
-(defclass env ()
-  (;; MDB_env * or NIL if the environment is not open.
-   (%envp :initform nil)
-   (path
-    :initarg :path :reader env-path
-    :documentation "The location of the memory-mapped file and the
-    environment lock file.")
-   (max-dbs
-    :type integer :initarg :max-dbs :reader env-max-dbs
-    :documentation "The maximum number of named databases in the
-    environment. Currently a moderate number is cheap, but a huge
-    number gets expensive: 7-120 words per transaction, and every
-    GET-DB does a linear search of the opened database.")
-   (max-readers
-    :type integer :initarg :max-readers :reader env-max-readers
-    :documentation "The maximum number of threads/reader slots. See
-    the documentation of the [reader lock
-    table](http://lmdb.tech/doc/group__readers.html) for more.")
-   (map-size
-    :type integer :initarg :map-size :reader env-map-size
-    :documentation "Specifies the size of the data file in bytes.")
-   ;; FIXED-MAP is persisted so ENV-FLAGS may lie about it.
-   ;; mdb_dbi_flags() would help.
-   (flags
-    :type list :initarg :flags :reader env-flags
-    :documentation "A plist of the options as captured by MAKE-ENV.
-    For example, `(:FIXED-MAP NIL :SUBDIR T ...)`.")
-   (mode :initarg :mode :reader env-mode)
-   (db-lock :initform (bt:make-lock "db-lock") :reader env-db-lock))
-  (:documentation "An environment object through which a memory-mapped
-  data file can be accessed. Always to be created by MAKE-ENV."))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defclass env ()
+    (;; MDB_env * or NIL if the environment is not open.
+     (%envp :initform nil)
+     (path
+      :initarg :path :reader env-path
+      :documentation "The location of the memory-mapped file and the
+      environment lock file.")
+     (max-dbs
+      :type integer :initarg :max-dbs :reader env-max-dbs
+      :documentation "The maximum number of named databases in the
+      environment. Currently a moderate number is cheap, but a huge
+      number gets expensive: 7-120 words per transaction, and every
+      GET-DB does a linear search of the opened database.")
+     (max-readers
+      :type integer :initarg :max-readers :reader env-max-readers
+      :documentation "The maximum number of threads/reader slots. See
+      the documentation of the [reader lock
+      table](http://lmdb.tech/doc/group__readers.html) for more.")
+     (map-size
+      :type integer :initarg :map-size :reader env-map-size
+      :documentation "Specifies the size of the data file in bytes.")
+     ;; FIXED-MAP is persisted so ENV-FLAGS may lie about it.
+     ;; mdb_dbi_flags() would help.
+     (flags
+      :type list :initarg :flags :reader env-flags
+      :documentation "A plist of the options as captured by OPEN-ENV.
+      For example, `(:FIXED-MAP NIL :SUBDIR T ...)`.")
+     (mode :initarg :mode :reader env-mode)
+     (db-lock :initform (bt:make-lock "db-lock") :reader env-db-lock)
+     #-sbcl
+     (n-txns-lock :initform nil :initarg :n-txns-lock :reader env-n-txns-lock)
+     (n-txns :initform nil :initarg :n-txns :reader env-n-txns))
+    (:documentation "An environment object through which a memory-mapped
+     data file can be accessed. Always to be created by OPEN-ENV.")))
 
-;;; FIXME: indicate that the arguments take effect in open-env
-(defun make-env (path &key (max-dbs 1)
-                 (max-readers 126) (map-size (* 1024 1024)) (mode #o664)
+(declaim (inline %envp))
+(defun %envp (env)
+  (slot-value env '%envp))
+
+(defsection @opening-and-closing-env
+    (:title "Opening and closing environments")
+  (open-env function)
+  (close-env function)
+  (*env* variable)
+  (with-env macro)
+  (open-env-p function))
+
+(defun %make-env (path &key max-dbs max-readers map-size mode
+                  subdir sync meta-sync read-only tls
+                  read-ahead lock mem-init fixed-map
+                  write-map map-async)
+  (assert (not write-map) () "WRITE-MAP not implemented.")
+  (assert (not map-async) () "MAP-ASYNC not implemented.")
+  (let ((path (pathname path)))
+    (if subdir
+        (unless (uiop:directory-pathname-p path)
+          (lmdb-error nil "Path to environment ~S is not a directory, but ~
+                          SUBDIR is true." path))
+        (unless (not (uiop:directory-pathname-p path))
+          (lmdb-error nil "Path to environment ~S is a directory, but ~
+                          SUBDIR is NIL." path)))
+    (make-instance 'env :path path :max-dbs max-dbs
+                   :max-readers max-readers :map-size map-size :mode mode
+                   :flags (list :subdir subdir :sync sync :meta-sync meta-sync
+                                :read-only read-only :tls tls
+                                :read-ahead read-ahead :lock lock
+                                :mem-init mem-init :fixed-map fixed-map
+                                :write-map write-map :map-async map-async))))
+
+(defun open-env-p (env)
+  "See if ENV is open, i.e. OPEN-ENV has been called on it without a
+  corresponding CLOSE-ENV."
+  (not (null (%envp env))))
+
+(defmethod print-object ((env env) stream)
+  (let ((*print-pretty* nil))
+    (print-unreadable-object (env stream :identity t :type t)
+      (format stream "~A ~A" (ignore-errors (env-path env))
+              (if (open-env-p env) "OPEN" "CLOSED")))))
+
+;;; KLUDGE: We don't want to lose the reference to ENV if
+;;; CHECK-FOR-STALE-READERS fails.
+(defun check-for-stale-readers* (env)
+  (handler-case
+      ;; FIXME: This may need a lock for safety according to James.
+      (check-for-stale-readers env)
+    (lmdb-error (e)
+      (warn "CHECK-FOR-STALE-READERS failed with ~S." e))))
+
+(defun env-flag-list-to-int (list)
+  (logior (if (getf list :tls) 0 liblmdb:+notls+)
+          (if (getf list :fixed-map) liblmdb:+fixedmap+ 0)
+          (if (getf list :subdir) 0 liblmdb:+nosubdir+)
+          (if (getf list :sync) 0 liblmdb:+nosync+)
+          (if (getf list :meta-sync) 0 liblmdb:+nometasync+)
+          (if (getf list :read-only) liblmdb:+rdonly+ 0)
+          (if (getf list :lock) 0 liblmdb:+nolock+)
+          (if (getf list :read-ahead) 0 liblmdb:+nordahead+)
+          (if (getf list :mem-init) 0 liblmdb:+nomeminit+)))
+
+;;; MDB-TRUENAME to ENV map, to protect against opening the
+;;; same mdb file multiple times.
+(defvar *open-envs* (tg:make-weak-hash-table :weakness :value))
+(defvar *open-envs-lock* (bt:make-lock "open-envs-lock"))
+
+;;; REGISTER-OPEN-ENV, DEREGISTER-OPEN-ENV and
+;;; CHECK-MDB-FILE-NOT-OPEN-IN-SAME-PROCESS are to be called under
+;;; WITHOUT-INTERRUPTS and holding *OPEN-ENVS-LOCK*.
+(defun register-open-env (env)
+  (let ((truename (mdb-truename env)))
+    (unless truename
+      (lmdb-error nil "Cannot determine TRUENAME of ~S." (env-path env)))
+    (when (gethash truename *open-envs*)
+      (lmdb-error nil "Another ENV already holds ~S open." truename))
+    (setf (gethash truename *open-envs*) env)))
+
+(defun deregister-open-env (env)
+  (let ((truename (mdb-truename env)))
+    (assert (eq env (gethash truename *open-envs*)))
+    (remhash truename *open-envs*)))
+
+(defun check-mdb-file-not-open-in-same-process (env)
+  (let ((truename (mdb-truename env)))
+    (when (and truename (gethash truename *open-envs*))
+      (lmdb-error nil "mdb file ~S already open." truename))))
+
+(defun mdb-truename (env)
+  (with-slots (path flags mode) env
+    (let ((path (if (getf flags :subdir)
+                    (merge-pathnames "data.mdb" path)
+                    path)))
+      (ignore-errors (truename path)))))
+
+(defun open-env (path &key (if-does-not-exist :error) (synchronized t)
+                 (max-dbs 1) (max-readers 126) (map-size (* 1024 1024))
+                 (mode #o664)
                  ;; Supported options
                  (subdir t) (sync t) (meta-sync t) read-only (tls t)
                  (read-ahead t) (lock t) (mem-init t) fixed-map
                  ;; Currently unsupported options, must be NIL.
                  write-map map-async)
   "Create an ENV object through which the LMDB environment can be
-  accessed. Before it can be used though, it must be opened with
-  OPEN-ENV.
+  accessed and open it. To prevent corruption, an error is signalled
+  if the same data file is opened multiple times. However, the checks
+  performed do not work on remote filesystems (see ENV-PATH).
 
-  Unless explicitly noted, none of arguments persist (i.e. they are
-  not saved in the data file).
+  LMDB-ERROR is signalled if opening the environment fails for any
+  other reason.
+
+  Unless explicitly noted, none of the arguments persist (i.e. they
+  are not saved in the data file).
 
   PATH is the filesystem location of the environment files (see SUBDIR
   below for more). Do not use LMDB data files on remote filesystems,
   even between processes on the same host. This breaks `flock()` on
   some OSes, possibly memory map sync, and certainly sync between
   programs on different hosts.
+
+  IF-DOES-NOT-EXIST determines what happens if ENV-PATH does not
+  exists:
+
+  - :ERROR: An error is signalled.
+
+  - :CREATE: A new memory-mapped file is created ensuring that all
+    containing directories exist.
+
+  - `NIL`: Return NIL without doing anything.
+
+  See CLOSE-ENV for the description of SYNCHRONIZED.
 
   - MAX-DBS: The maximum number of named databases in the environment.
     Currently a moderate number is cheap, but a huge number gets
@@ -857,204 +957,101 @@
   of freeing foreign resources. Thus, the common idiom:
 
   ```
-  (setq *env* (open-env (make-env \"some-path\")))
+  (setq *env* (open-env \"some-path\"))
   ```
 
   is okay for development, too. No need to always do WITH-ENV,
   which does not mesh with threads anyway.
 
-  Related to [mdb_env_open()](http://www.lmdb.tech/doc/group__mdb.html#ga32a193c6bf4d7d5c5d579e71f22e9340)."
-  (assert (not write-map) () "WRITE-MAP not implemented.")
-  (assert (not map-async) () "MAP-ASYNC not implemented.")
-  (let ((path (pathname path)))
-    (if subdir
-        (unless (uiop:directory-pathname-p path)
-          (lmdb-error nil "Path to environment ~S is not a directory, but ~
-                          SUBDIR is true." path))
-        (unless (not (uiop:directory-pathname-p path))
-          (lmdb-error nil "Path to environment ~S is a directory, but ~
-                          SUBDIR is NIL." path)))
-    (make-instance 'env :path path :max-dbs max-dbs
-                   :max-readers max-readers :map-size map-size :mode mode
-                   :flags (list :subdir subdir :sync sync :meta-sync meta-sync
-                                :read-only read-only :tls tls
-                                :read-ahead read-ahead :lock lock
-                                :mem-init mem-init :fixed-map fixed-map
-                                :write-map write-map :map-async map-async))))
-
-(declaim (inline %envp))
-(defun %envp (env)
-  (slot-value env '%envp))
-
-(defsection @opening-and-closing-env
-    (:title "Opening and closing environments")
-  (open-env function)
-  (close-env function)
-  (*env* variable)
-  (with-env macro)
-  (open-env-p function))
-
-(defun open-env-p (env)
-  "See if ENV is open, i.e. OPEN-ENV has been called on it without a
-  corresponding CLOSE-ENV."
-  (not (null (%envp env))))
-
-(defmethod print-object ((env env) stream)
-  (let ((*print-pretty* nil))
-    (print-unreadable-object (env stream :identity t :type t)
-      (format stream "~A ~A" (ignore-errors (env-path env))
-              (if (open-env-p env) "OPEN" "CLOSED")))))
-
-;;; KLUDGE: We don't want to lose the reference to ENV if
-;;; CHECK-FOR-STALE-READERS fails.
-(defun check-for-stale-readers* (env)
-  (handler-case
-      ;; FIXME: This may need a lock for safety according to James.
-      (check-for-stale-readers env)
-    (lmdb-error (e)
-      (warn "CHECK-FOR-STALE-READERS failed with ~S." e))))
-
-;;; MDB-TRUENAME to ENV map, to protect against opening the
-;;; same mdb file multiple times.
-(defvar *open-envs* (tg:make-weak-hash-table :weakness :value))
-(defvar *open-envs-lock* (bt:make-lock "open-envs-lock"))
-
-(defun register-open-env (env)
-  (without-interrupts
-    (bt:with-lock-held (*open-envs-lock*)
-      (let ((truename (mdb-truename env)))
-        (unless truename
-          (lmdb-error nil "Cannot determine TRUENAME of ~S." (env-path env)))
-        (when (gethash truename *open-envs*)
-          (lmdb-error nil "Another ENV already holds ~S open." truename))
-        (setf (gethash truename *open-envs*) env)))))
-
-(defun deregister-open-env (env)
-  (without-interrupts
-    (bt:with-lock-held (*open-envs-lock*)
-      (let ((truename (mdb-truename env)))
-        (assert (eq env (gethash truename *open-envs*)))
-        (remhash truename *open-envs*)))))
-
-(defun mdb-truename (env)
-  (with-slots (path flags mode) env
-    (let ((path (if (getf flags :subdir)
-                    (merge-pathnames "data.mdb" path)
-                    path)))
-      (ignore-errors (truename path)))))
-
-(defun check-mdb-file-not-open-in-same-process (env)
-  (bt:with-lock-held (*open-envs-lock*)
-    (let ((truename (mdb-truename env)))
-      (when (and truename (gethash truename *open-envs*))
-        (lmdb-error nil "mdb file ~S already open." truename)))))
-
-(defun env-flag-list-to-int (list)
-  (logior (if (getf list :tls) 0 liblmdb:+notls+)
-          (if (getf list :fixed-map) liblmdb:+fixedmap+ 0)
-          (if (getf list :subdir) 0 liblmdb:+nosubdir+)
-          (if (getf list :sync) 0 liblmdb:+nosync+)
-          (if (getf list :meta-sync) 0 liblmdb:+nometasync+)
-          (if (getf list :read-only) liblmdb:+rdonly+ 0)
-          (if (getf list :lock) 0 liblmdb:+nolock+)
-          (if (getf list :read-ahead) 0 liblmdb:+nordahead+)
-          (if (getf list :mem-init) 0 liblmdb:+nomeminit+)))
-
-(defun open-env (env &key (if-does-not-exist :error))
-  "Open ENV for accessing the data in it. It is an error to open an
-  already open environment.
-
-  IF-DOES-NOT-EXIST determines what happens if ENV-PATH does not
-  exists:
-
-  - :ERROR: An error is signalled.
-
-  - :CREATE: A new memory-mapped file is created ensuring that all
-    containing directories exist.
-
-  - `NIL`: Return NIL without doing anything.
-
-  To prevent corruption, an error is signalled if the same data file
-  is opened multiple times. However, the checks performed do not work
-  on remote filesystems (see ENV-PATH).
-
-  LMDB-ERROR is signalled if opening the environment fails for any
-  other reason.
-
   Wraps [mdb_env_create()](http://www.lmdb.tech/doc/group__mdb.html#gaad6be3d8dcd4ea01f8df436f41d158d4)
   and [mdb_env_open()](http://www.lmdb.tech/doc/group__mdb.html#ga32a193c6bf4d7d5c5d579e71f22e9340)."
-  (when (open-env-p env)
-    (lmdb-error nil "~S already open." env))
-  ;; FIXME: needs locking
-  (check-mdb-file-not-open-in-same-process env)
-  (with-slots (path flags mode) env
-    (unless (probe-file path)
-      (ecase if-does-not-exist
-        (:error (lmdb-error nil "Environment path ~S does not exist." path))
-        (:create (ensure-directories-exist path))
-        ((nil) (return-from open-env nil))))
-    (let ((env-created nil)
-          (env-registered nil))
-      (without-interrupts
-        (cffi:with-foreign-object (%envpp :pointer)
-          (unwind-protect
-               (let ((return-code (liblmdb:env-create %envpp)))
-                 (case return-code
-                   (0 (let ((%envp (cffi:mem-ref %envpp :pointer)))
-                        (setq env-created t)
-                        (assert (zerop (liblmdb:env-set-maxdbs
-                                        %envp (env-max-dbs env))))
-                        (assert (zerop (liblmdb:env-set-mapsize
-                                        %envp (env-map-size env))))
-                        (assert (zerop (liblmdb:env-set-maxreaders
-                                        %envp (env-max-readers env))))
-                        (let ((return-code (liblmdb:env-open
-                                            %envp (namestring path)
-                                            (env-flag-list-to-int flags)
-                                            ;; KLUDGE: For some reason the
-                                            ;; mode_t argument becomes a
-                                            ;; pointer in the cffi
-                                            ;; bindings.
-                                            (cffi:make-pointer mode))))
-                          (alexandria:switch (return-code)
-                            (0
-                             (setf (slot-value env '%envp) %envp)
-                             (register-open-env env)
-                             (setq env-registered t)
-                             (tg:finalize env #'(lambda ()
-                                                  (finalize-env %envp)))
-                             nil)
-                            (liblmdb:+version-mismatch+
-                             (lmdb-error return-code
-                                         "This client does not support the ~
-                                         on-disk format version found in the ~
-                                         environment files."))
-                            (+enoent+
-                             (lmdb-error return-code
-                                         "The environment path ~S doesn't ~
-                                         exist."
-                                         path))
-                            (+eacces+
-                             (lmdb-error +eacces+
-                                         "The user doesn't have permission to ~
-                                         access the environment path ~S."
-                                         path))
-                            (liblmdb:+invalid+ (lmdb-error return-code))
-                            (+eagain+
-                             (lmdb-error +eagain+
-                                         "The environment was locked by ~
+  (let ((env (%make-env path :max-dbs max-dbs :max-readers max-readers
+                        :map-size map-size :mode mode :subdir subdir
+                        :sync sync :meta-sync meta-sync
+                        :read-only read-only :tls tls
+                        :read-ahead read-ahead :lock lock :mem-init mem-init
+                        :fixed-map fixed-map :write-map write-map
+                        :map-async map-async))
+        (env-created nil)
+        (env-registered nil))
+    (bt:with-lock-held (*open-envs-lock*)
+      (check-mdb-file-not-open-in-same-process env)
+      (with-slots (path flags mode) env
+        (unless (probe-file path)
+          (ecase if-does-not-exist
+            (:error (lmdb-error nil "Environment path ~S does not exist."
+                                path))
+            (:create (ensure-directories-exist path))
+            ((nil) (return-from open-env nil))))
+        (without-interrupts
+          (cffi:with-foreign-object (%envpp :pointer)
+            (unwind-protect
+                 (let ((return-code (liblmdb:env-create %envpp)))
+                   (case return-code
+                     (0 (let ((%envp (cffi:mem-ref %envpp :pointer)))
+                          (setq env-created t)
+                          (assert (zerop (liblmdb:env-set-maxdbs
+                                          %envp (env-max-dbs env))))
+                          (assert (zerop (liblmdb:env-set-mapsize
+                                          %envp (env-map-size env))))
+                          (assert (zerop (liblmdb:env-set-maxreaders
+                                          %envp (env-max-readers env))))
+                          (let ((return-code (liblmdb:env-open
+                                              %envp (namestring path)
+                                              (env-flag-list-to-int flags)
+                                              ;; KLUDGE: For some reason the
+                                              ;; mode_t argument becomes a
+                                              ;; pointer in the cffi
+                                              ;; bindings.
+                                              (cffi:make-pointer mode))))
+                            (alexandria:switch (return-code)
+                              (0
+                               (setf (slot-value env '%envp) %envp)
+                               (register-open-env env)
+                               (setq env-registered t)
+                               (tg:finalize env #'(lambda ()
+                                                    (finalize-env %envp)))
+                               nil)
+                              (liblmdb:+version-mismatch+
+                               (lmdb-error return-code
+                                           "This client does not support the ~
+                                           on-disk format version found in ~
+                                           the environment files."))
+                              (+enoent+
+                               (lmdb-error return-code
+                                           "The environment path ~S doesn't ~
+                                           exist."
+                                           path))
+                              (+eacces+
+                               (lmdb-error +eacces+
+                                           "The user doesn't have permission ~
+                                           to access the environment path ~S."
+                                           path))
+                              (liblmdb:+invalid+ (lmdb-error return-code))
+                              (+eagain+
+                               (lmdb-error +eagain+
+                                           "The environment was locked by ~
                                          another process."))
-                            (t (lmdb-error return-code))))))
-                   (t (lmdb-error return-code "Error creating environment."))))
-            (when (and env-created (not env-registered))
-              (let ((%envp (cffi:mem-ref %envpp :pointer)))
-                ;; lmdb.h says that if mdb_env_open fails,
-                ;; mdb_env_close must be called to free the handle
-                ;; allocated by mdb_env_create. Here, it could be that
-                ;; registration failed, too.
-                (liblmdb:env-close %envp))))))))
-  (check-for-stale-readers* env)
-  env)
+                              (t (lmdb-error return-code))))))
+                     (t (lmdb-error return-code
+                                    "Error creating environment."))))
+              (when (and env-created (not env-registered))
+                (let ((%envp (cffi:mem-ref %envpp :pointer)))
+                  ;; lmdb.h says that if mdb_env_open fails,
+                  ;; mdb_env_close must be called to free the handle
+                  ;; allocated by mdb_env_create. Here, it could be that
+                  ;; registration failed, too.
+                  (liblmdb:env-close %envp)))))))
+      (cond (synchronized
+             #-sbcl
+             (setf (slot-value env 'n-txns-lock) (bt:make-lock))
+             (setf (slot-value env 'n-txns) 0))
+            (t
+             #-sbcl
+             (setf (slot-value env 'n-txns-lock) nil)
+             (setf (slot-value env 'n-txns) nil))))
+    (check-for-stale-readers* env)
+    env))
 
 ;;; This is only called on open environments because CLOSE-ENV cancels
 ;;; the finalizer.
@@ -1062,36 +1059,65 @@
   (without-interrupts
     (liblmdb:env-close %envp)))
 
-(defun close-env (env)
-  "Close ENV and free the memory. After closing, ENV can be opened again.
+(defun close-env (env &key force)
+  "Close ENV and free the memory. Closing an already closed ENV has no effect.
 
-  Only a single thread may call this function. All env-dependent
-  objects, such as transactions and databases, must be closed before
-  calling this function. Attempts to use those objects after closing
-  the environment will result in a segmentation fault or data loss.
+  Since accessing @TRANSACTIONS, @DATABASES and @CURSORS after closing
+  their environment would risk database curruption, CLOSE-ENV makes
+  sure that they are not in use. There are two ways this can happen:
+
+  - If ENV was opened :SYNCHRONIZED (see OPEN-ENV), then CLOSE-ENV
+    waits until there are no @ACTIVE-TRANSACTIONs in ENV before
+    closing it. This requires synchronization and introduces some
+    overhead, which might be noticable for workloads involving lots of
+    quick read transactions. It is an LMDB-ERROR to attempt to close
+    an environment in a WITH-TXN to avoid deadlocks.
+
+  - On the other hand, if SYNCHRONIZED was NIL, then - unless FORCE is
+    true - calling CLOSE-ENV signals an LMDB-ERROR to avoid the
+    @SAFETY issues involved in closing the environment. Environments
+    opened with :SYNCHRONIZED NIL are only closed when they are
+    garbage collected and their finalizer is run. Still, for
+    production it might be worth it to gain the last bit of
+    performance.
 
   Wraps [mdb_env_close()](http://www.lmdb.tech/doc/group__mdb.html#ga4366c43ada8874588b6a62fbda2d1e95)."
-  (without-interrupts
-    (let ((%envp (%envp env)))
-      (when %envp
-        ;; void in C
-        (liblmdb:env-close %envp)
-        (setf (slot-value env '%envp) nil)
-        (deregister-open-env env)
-        (tg:cancel-finalization env)))))
+  (when (%envp env)
+    (when (and (null (env-n-txns env)) (not force))
+      (lmdb-error nil "ENVs opened with :SYNCHRONIZED NIL cannot be ~
+                    closed explicitly."))
+    (check-no-active-transaction env
+                                 "Cannot close environment within a WITH-TXN.")
+    (without-interrupts
+      (when (env-n-txns env)
+        (env-prevent-txns env))
+      (bt:with-lock-held (*open-envs-lock*)
+        (let ((%envp (%envp env)))
+          (when %envp
+            ;; void in C
+            (liblmdb:env-close %envp)
+            (setf (slot-value env '%envp) nil)
+            (deregister-open-env env)
+            (tg:cancel-finalization env)))))))
 
 (defvar *env* nil
-  "The default ENVIRONMENT for WITH-TXN.")
+  "The default ENV for macros and function that take an environment
+  argument.")
 
-(defmacro with-env ((env &key (if-does-not-exist :error)) &body body)
-  "Call OPEN-ENV on ENV with IF-DOES-NOT-EXIST, bind *ENV* to
-  ENV, execute BODY, and CLOSE-ENV."
-  (alexandria:once-only (env)
-    `(let ((*env* ,env))
-       (open-env ,env :if-does-not-exist ,if-does-not-exist)
-       (unwind-protect
-            (progn ,@body)
-         (close-env ,env)))))
+(defmacro with-env ((env path &rest open-env-args) &body body)
+  """Bind the variable ENV to a new enviroment returned by OPEN-ENV
+  called with PATH and OPEN-ENV-ARGS, execute BODY, and CLOSE-ENV. The
+  following example binds the default environment:
+
+  ```
+  (with-env (*env* "/tmp/lmdb-test" :if-does-not-exist :create)
+    ...)
+  ```
+  """
+  `(let ((,env (open-env ,path ,@open-env-args)))
+     (unwind-protect
+          (progn ,@body)
+       (close-env ,env))))
 
 (defsection @misc-env (:title "Miscellaneous environment functions")
   (check-for-stale-readers function)
@@ -1101,10 +1127,10 @@
   (env-max-key-size function)
   (with-temporary-env macro))
 
-(defun check-for-stale-readers (env)
+(defun check-for-stale-readers (&optional (env *env*))
   "Check for stale entries in the reader lock table. See
   [Caveats](http://www.lmdb.tech/doc/). This function is called
-  automatically by OPEN-ENV. If OS other processes or threads
+  automatically by OPEN-ENV. If other OS processes or threads
   accessing ENV abort without closing read transactions, call this
   function periodically to get rid off them. Alternatively, close all
   environments accessing the data file.
@@ -1117,7 +1143,7 @@
           (0 (cffi:mem-ref %count :uint32))
           (t (lmdb-error return-code)))))))
 
-(defun env-statistics (env)
+(defun env-statistics (&optional (env *env*))
   "Return statistics about ENV as a plist.
 
    - :PAGE-SIZE: The size of a database page in bytes.
@@ -1147,7 +1173,7 @@
               :overflow-pages (slot liblmdb:ms-overflow-pages)
               :entries (slot liblmdb:ms-entries))))))
 
-(defun env-info (env)
+(defun env-info (&optional (env *env*))
   "Return information about ENV as a plist.
 
   - :MAP-ADDRESS: Address of memory map, if fixed (see OPEN-ENV's
@@ -1178,7 +1204,7 @@
               :maximum-readers (slot liblmdb:me-maxreaders)
               :n-readers (slot liblmdb:me-numreaders))))))
 
-(defun sync-env (env)
+(defun sync-env (&optional (env *env*))
   "Flush the data buffers to disk as in calling `fsync()`. When ENV
   had been opened with :SYNC NIL or :META-SYNC NIL, this may be handy
   to force flushing the OS buffers to disk, which avoids potential
@@ -1188,7 +1214,7 @@
   (without-interrupts
     (liblmdb:env-sync (%envp env) 1)))
 
-(defun env-max-key-size (env)
+(defun env-max-key-size (&optional (env *env*))
   "Return the maximum size of keys and @DUPSORT data in bytes. Depends
   on the compile-time constant `MDB_MAXKEYSIZE` in the C library. The
   default is 511. If this limit is exceeded LMDB-BAD-VALSIZE-ERROR is
@@ -1198,15 +1224,35 @@
   (without-interrupts
     (liblmdb:env-get-maxkeysize (%envp env))))
 
-(defmacro with-temporary-env ((var &rest env-args) &body body)
-  "Run BODY with an open temporary environment bound to VAR. In more
+(defmacro with-temporary-env ((env &rest open-env-args) &body body)
+  """Run BODY with an open temporary environment bound to ENV. In more
   detail, create an environment in a fresh temporary directory in an
-  OS specific location. ENV-ARGS is a list of keyword arguments and
-  values for MAKE-ENV. This is intended for testing and examples."
-  `(call-with-temporary-env (lambda (,var)
-                              (declare (ignorable ,var))
-                              ,@body)
-                            ,@env-args))
+  OS specific location. OPEN-ENV-ARGS is a list of keyword arguments
+  and values for OPEN-ENV. This macro is intended for testing and
+  examples.
+
+  ```
+  (with-temporary-env (*env*)
+    (let ((db (get-db "test" :if-does-not-exist :create)))
+      (with-txn (:write t)
+        (put db "k1" #(2 3))
+        (print (g3t db "k1")) ; => #(2 3)
+        (del db "k1"))))
+  ```
+
+  Since data corruption in temporary environments is not a concern,
+  unlike WITH-ENV, WITH-TEMPORARY-ENV closes the environment even if
+  it was opened with
+  :SYNCHRONIZED NIL (see OPEN-ENV and CLOSE-ENV)."""
+  (alexandria:with-gensyms (path)
+    `(call-with-temporary-env
+      (lambda (,path)
+        (with-env (,env ,path :if-does-not-exist :create ,@open-env-args)
+          (unwind-protect
+               (progn ,@body)
+            (unless ,(getf open-env-args :synchronized t)
+              (close-env ,env :force t)))))
+      ,@open-env-args)))
 
 (defun random-string ()
   (format nil "~:@(~36,8,'0R~)" (random (expt 36 8) (make-random-state t))))
@@ -1222,9 +1268,7 @@
     (assert (not (uiop:directory-exists-p temp-dir)))
     (ensure-directories-exist path)
     (unwind-protect
-         (let ((env (apply #'make-env path env-args)))
-           (with-env (env :if-does-not-exist :create)
-             (funcall fn env)))
+         (funcall fn path)
       (uiop:delete-directory-tree temp-dir :validate t
                                   :if-does-not-exist :ignore))))
 
@@ -1266,13 +1310,67 @@
   ;; %negative if the transaction is reset.
   (%txna 0 :type fixnum)
   (flags 0 :type fixnum)
-  (env nil :type env))
+  ;; Keep FINALIZE-ENV at bay.
+  (env nil :type env)
+  ;; This might be a TXN with a different ENV.
+  (enclosing-txn nil :type (or txn null)))
 
 (declaim (type (or txn null) *txn*))
 (defvar *txn* nil)
-(defvar *has-open-write-txn-in-thread* nil)
 #+sbcl
-(declaim (sb-ext:always-bound *txn* *has-open-write-txn-in-thread*))
+(declaim (sb-ext:always-bound *txn*))
+
+(define-glossary-term @active-transaction (:title "active transaction")
+  """The active transaction in some environment and thread is the
+  transaction of the innermost WITH-TXN being executed in the thread
+  that belongs to the environment. In most cases, this is simply the
+  enclosing WITH-TXN, but if WITH-TXNs with different :ENV arguments
+  are nested, then it may not be:
+
+  ```
+  (with-temporary-env (env)
+    (let ((db (get-db "db" :env env :if-does-not-exist :create)))
+      (with-temporary-env (inner-env)
+        (with-txn (:env env :write t)
+          (with-txn (:env inner-env)
+            (put db #(1) #(2)))))))
+  ```
+
+  In the above example, DB is known to belong to ENV so although the
+  immediately enclosing transaction belongs to INNER-ENV, PUT is
+  executed in context of the outer, write transaction because that's
+  the innermost in ENV.
+
+  Operations that require a transaction always attempt to use the
+  active transaction even if it is not open (see OPEN-TXN-P).""")
+
+;;; Return the innermost TXN in ENV.
+(declaim (inline active-txn-in-env))
+(defun active-txn-in-env (env &optional errorp)
+  (let ((txn (if (null env)
+                 *txn*
+                 (let ((txn *txn*))
+                   (loop while txn do
+                     (when (eq (txn-env txn) env)
+                       (return txn))
+                     (setq txn (txn-enclosing-txn txn)))))))
+    (if (and errorp (null txn))
+        (lmdb-error liblmdb:+bad-txn+)
+        txn)))
+
+(defun check-no-active-transaction (env message)
+  (when (active-txn-in-env env)
+    (lmdb-error nil message)))
+
+;;; Traverse the list of ancestors of TXN through the
+;;; TXN-ENCLOSING-TXN and return the first that has the same ENV.
+(defun parent-txn (txn)
+  (let ((env (txn-env txn))
+        (enclosing (txn-enclosing-txn txn)))
+    (loop while enclosing do
+      (when (eq (txn-env enclosing) env)
+        (return-from parent-txn enclosing))
+      (setq enclosing (txn-enclosing-txn enclosing)))))
 
 (declaim (inline %txna))
 (defun %txna ()
@@ -1284,34 +1382,36 @@
 
 (declaim (inline close-txn))
 (defun close-txn (txn)
-  (setf (txn-%txna txn) 0)
-  (when (not (read-only-txn-p txn))
-    (setq *has-open-write-txn-in-thread* nil)))
+  (setf (txn-%txna txn) 0))
 
-(defun txn-reset-p ()
-  (minusp (%txna)))
+(defun txn-reset-p (txn)
+  (minusp (txn-%txna txn)))
 
-(defun set-txn-reset-p ()
-  (setf (txn-%txna *txn*) (- (abs (%txna)))))
+(defun set-txn-reset-p (txn)
+  (setf (txn-%txna txn) (- (abs (txn-%txna txn)))))
 
-(defun clear-txn-reset-p ()
-  (setf (txn-%txna *txn*) (abs (%txna))))
+(defun clear-txn-reset-p (txn)
+  (setf (txn-%txna txn) (abs (txn-%txna txn))))
+
+(declaim (inline %open-txn-p))
+(defun %open-txn-p (txn)
+  (plusp (txn-%txna txn)))
 
 (declaim (inline open-txn-p))
-(defun open-txn-p ()
-  "See if TXN is open, i.e. COMMIT-TXN or ABORT-TXN have not been
-  called on it. Also, RESET-TXN without a corresponding RENEW-TXN
-  closes the transaction."
-  (let ((txn *txn*))
-    (and txn (plusp (txn-%txna txn)))))
+(defun open-txn-p (&optional env)
+  "See if there is an active transaction and it is open, i.e.
+  COMMIT-TXN or ABORT-TXN have not been called on it. Also, RESET-TXN
+  without a corresponding RENEW-TXN closes the transaction."
+  (let ((active-txn (active-txn-in-env env)))
+    (and active-txn (%open-txn-p active-txn))))
 
 (declaim (inline abortable-txn-p))
-(defun abortable-txn-p ()
-  (not (zerop (%txna))))
+(defun abortable-txn-p (txn)
+  (not (zerop (txn-%txna txn))))
 
 (declaim (inline %txnp))
-(defun %txnp ()
-  (fixnum-to-aligned-pointer (abs (%txna))))
+(defun %txnp (&optional (%txna (%txna)))
+  (fixnum-to-aligned-pointer (abs %txna)))
 
 (defun txn-id ()
   "The ID of TXN. IDs are integers incrementing from 1. For a
@@ -1363,107 +1463,192 @@
        (call-with-txn #',with-txn-body ,env ,write ,ignore-parent
                       ,sync ,meta-sync))))
 
+(declaim (inline env-enter-txn))
+(defun env-enter-txn (env)
+  #-sbcl
+  (let ((n-txns-lock (slot-value env 'n-txns-lock))
+        (errorp nil))
+    (when n-txns-lock
+      (bt:with-lock-held (n-txns-lock)
+        (with-slots (n-txns) env
+          (when (= n-txns -1)
+            (setq errorp t))
+          (incf (slot-value env 'n-txns))))
+      (when errorp
+        (lmdb-error nil "Attempt to start a transaction in a ~
+                        closed enviroment ~S." env))))
+  #+sbcl
+  (with-slots (n-txns) env
+    (let ((old n-txns))
+      (declare (type (or fixnum null) old))
+      (when old
+        (loop when (eq old -1)
+                do (lmdb-error nil "Attempt to start a transaction in a ~
+                                   closed enviroment ~S." env)
+              until (eq (sb-ext:compare-and-swap n-txns old (1+ old)) old)
+              do (setq old n-txns))))))
+
+(declaim (inline env-leave-txn))
+(defun env-leave-txn (env)
+  #-sbcl
+  (let ((n-txns-lock (slot-value env 'n-txns-lock)))
+    (when n-txns-lock
+      (bt:with-lock-held (n-txns-lock)
+        (decf (slot-value env 'n-txns)))))
+  #+sbcl
+  (with-slots (n-txns) env
+    (let ((old n-txns))
+      (declare (type (or fixnum null) old))
+      (when old
+        (loop do (assert (not (eq old -1)))
+              until (eq (sb-ext:compare-and-swap n-txns old (1- old)) old)
+              do (setq old n-txns))))))
+
+;;; Set ENV-N-TXNS to -1, which makes ENV-ENTER-TXN fail with an error.
+(defun env-prevent-txns (env)
+  #-sbcl
+  (let ((n-txns-lock (slot-value env 'n-txns-lock)))
+    (when n-txns-lock
+      (loop
+        (bt:with-lock-held (n-txns-lock)
+          (with-slots (n-txns) env
+            (when (zerop n-txns)
+              (setq n-txns -1)
+              (return)))))))
+  #+sbcl
+  (with-slots (n-txns) env
+    (let ((old n-txns))
+      (declare (type (or fixnum null) old))
+      (assert old)
+      (loop until (eq (sb-ext:compare-and-swap n-txns old -1) old)
+            do (setq old n-txns)))))
+
+;;; This is equivalent to (WHEN (%OPEN-TXN-P TXN) (COMMIT-TXN)), but
+;;; access to TXN and its slots is optimized.
+(declaim (inline maybe-commit-txn))
+(defun maybe-commit-txn (txn)
+  (declare (type txn txn)
+           (optimize speed))
+  (let ((%txna (txn-%txna txn)))
+    (when (plusp %txna)
+      (let ((return-code (liblmdb:txn-commit
+                          (fixnum-to-aligned-pointer %txna))))
+        (alexandria:switch (return-code)
+          (0 (setf (txn-%txna txn) 0))
+          (t (lmdb-error return-code)))))))
+
+;;; An optimized equivalent of ABORT-TXN
+(declaim (inline maybe-abort-txn))
+(defun maybe-abort-txn (txn)
+  (declare (type txn txn)
+           (optimize speed))
+  (let ((%txna (txn-%txna txn)))
+    (unless (zerop %txna)
+      (liblmdb:txn-abort (fixnum-to-aligned-pointer (abs %txna)))
+      (setf (txn-%txna txn) 0))))
+
 (defun call-with-txn (fn env write ignore-parent sync meta-sync)
   (declare (type function fn)
+           (type (or env null) env)
            (optimize speed))
   (unless env
     (lmdb-error nil "WITH-TXN: ENV is NIL."))
-  ;; FIXME: Different ENVs?
-  (when (and (not write) (not ignore-parent) (open-txn-p))
-    (return-from call-with-txn (funcall fn)))
-  (when (and write ignore-parent *has-open-write-txn-in-thread*)
-    (lmdb-error liblmdb:+bad-txn+ "Two write transactions in the same ~
-                                  thread would deadlock."))
-  (without-interrupts
-    (let* ((flags (logior (if write 0 liblmdb:+rdonly+)
-                          (if sync 0 liblmdb:+nosync+)
-                          (if meta-sync 0 liblmdb:+nometasync+)))
-           (%txna (cffi:with-foreign-object (%txnpp :pointer)
-                    (let ((return-code (liblmdb:txn-begin
-                                        (%envp env)
-                                        (if (or ignore-parent (null *txn*))
-                                            +null-pointer+
-                                            (%txnp))
-                                        flags %txnpp)))
-                      (unless (zerop return-code)
-                        (lmdb-error return-code))
-                      (aligned-pointer-to-fixnum
-                       (cffi:mem-ref %txnpp :pointer)))))
-           (*has-open-write-txn-in-thread*
-             (or *has-open-write-txn-in-thread* write)))
-      (let* ((txn (make-txn :%txna %txna :flags flags :env env))
-             (*txn* txn))
-        (declare (type txn txn)
-                 (dynamic-extent txn))
-        (unwind-protect
-             (multiple-value-prog1 (with-interrupts (funcall fn))
-               ;; This is equivalent to (WHEN (OPEN-TXN-P)
-               ;; (COMMIT-TXN)), but access to *TXN* and its slots is
-               ;; optimized.
-               (let ((%txna (txn-%txna txn)))
-                 (declare (type fixnum %txna))
-                 (when (plusp %txna)
-                   (let ((return-code (liblmdb:txn-commit
-                                       (fixnum-to-aligned-pointer %txna))))
-                     (alexandria:switch (return-code)
-                       (0
-                        ;; No need to update
-                        ;; *HAS-OPEN-WRITE-TXN-IN-THREAD*, we are
-                        ;; leaving its binding anyway.
-                        (setf (txn-%txna txn) 0))
-                       (t (lmdb-error return-code)))))))
-          ;; An optimized equivalent of ABORT-TXN
-          (let ((%txna (txn-%txna txn)))
-            (unless (zerop %txna)
-              (liblmdb:txn-abort (fixnum-to-aligned-pointer (abs %txna)))
-              (setf (txn-%txna txn) 0))))))))
+  (let ((parent-txn (active-txn-in-env env)))
+    (when (and (not write) (not ignore-parent)
+               parent-txn (%open-txn-p parent-txn))
+      (return-from call-with-txn (funcall fn)))
+    (when (and write ignore-parent
+               parent-txn (%open-txn-p parent-txn)
+               (not (read-only-txn-p parent-txn)))
+      (lmdb-error liblmdb:+bad-txn+ "Two write transactions in the same ~
+                                    thread would deadlock."))
+    (without-interrupts
+      (env-enter-txn env)
+      (let* ((flags (logior (if write 0 liblmdb:+rdonly+)
+                            (if sync 0 liblmdb:+nosync+)
+                            (if meta-sync 0 liblmdb:+nometasync+)))
+             (%txna (cffi:with-foreign-object (%txnpp :pointer)
+                      (let ((return-code (liblmdb:txn-begin
+                                          (%envp env)
+                                          (if (or ignore-parent
+                                                  (null parent-txn))
+                                              +null-pointer+
+                                              (%txnp (txn-%txna parent-txn)))
+                                          flags %txnpp)))
+                        (unless (zerop return-code)
+                          (lmdb-error return-code))
+                        (aligned-pointer-to-fixnum
+                         (cffi:mem-ref %txnpp :pointer))))))
+        (let* ((txn (make-txn :%txna %txna :flags flags :env env
+                              :enclosing-txn *txn*))
+               (*txn* txn))
+          (declare (type txn txn)
+                   (dynamic-extent txn))
+          (unwind-protect
+               (multiple-value-prog1
+                   (with-interrupts (funcall fn))
+                 (maybe-commit-txn txn))
+            (maybe-abort-txn txn)
+            (env-leave-txn env)))))))
 
-(define-glossary-term @active-transaction (:title "active transaction")
-  "During execution, the active transaction is the transaction created
-  by the immediately enclosing WITH-TXN. That is, the innermost
-  WITH-TXN that has the currently running code within its dynamic
-  extent.
+(declaim (inline open-%txnp))
+(defun open-%txnp (txn)
+  (if (null txn)
+      (lmdb-error liblmdb:+bad-txn+ "No active transaction.")
+      (let ((%txna (txn-%txna txn)))
+        (unless (plusp %txna)
+          (lmdb-error liblmdb:+bad-txn+ "The active transaction is not open."))
+        (fixnum-to-aligned-pointer %txna))))
 
-  Operations that require a transaction always attempt to use the
-  active transaction even if it is not open (see OPEN-TXN-P).")
+(declaim (inline open-%txnp-for-env))
+(defun open-%txnp-for-env (env)
+  (let ((active-txn (if (or (null env)
+                            (null *txn*)
+                            (eq (txn-env *txn*) env))
+                        *txn*
+                        (active-txn-in-env env))))
+    (unless active-txn
+      (lmdb-error liblmdb:+bad-txn+ "No active transaction."))
+    (let ((%txna (txn-%txna active-txn)))
+      (unless (plusp %txna)
+        (lmdb-error liblmdb:+bad-txn+ "The active transaction is not open."))
+      (fixnum-to-aligned-pointer %txna))))
 
-(declaim (inline require-open-txn))
-(defun require-open-txn (&optional (message nil))
-  (unless (open-txn-p)
-    (lmdb-error liblmdb:+bad-txn+ "~@[~A: ~]~A" message
-                (if *txn*
-                    "The current transaction is not open."
-                    "No active transaction."))))
+(declaim (inline open-%txnp-for-db))
+(defun open-%txnp-for-db (db)
+  (open-%txnp-for-env (slot-value db 'env)))
 
-(defun commit-txn ()
-  "Commit TXN or signal an error if it is not open. If TXN is not
-  nested in another transaction, committing makes updates performed
-  visible to future transactions. If TXN is a child transaction, then
-  committing makes updates visible to its parent only. For read-only
-  transactions, committing releases the reference to a historical
-  version environment, allowing reuse of pages replaced since.
+(defun commit-txn (&optional env)
+  "Commit the innermost enclosig transaction (or @ACTIVE-TRANSACTION
+  belonging to ENV if ENV is specified) or signal an error if it is
+  not open. If TXN is not nested in another transaction, committing
+  makes updates performed visible to future transactions. If TXN is a
+  child transaction, then committing makes updates visible to its
+  parent only. For read-only transactions, committing releases the
+  reference to a historical version environment, allowing reuse of
+  pages replaced since.
 
   Wraps [mdb_txn_commit()](http://www.lmdb.tech/doc/group__mdb.html#ga846fbd6f46105617ac9f4d76476f6597)."
-  (require-open-txn "COMMIT-TXN")
   (without-interrupts
-    (let ((return-code (liblmdb:txn-commit (%txnp))))
+    (let ((return-code (liblmdb:txn-commit (open-%txnp-for-env env))))
       (alexandria:switch (return-code)
         (0 (close-txn *txn*)
            nil)
         (t (lmdb-error return-code))))))
 
-(defun abort-txn ()
+(defun abort-txn (&optional env)
   "Close TXN by discarding all updates performed, which will then not
   be visible to either parent or future transactions. Aborting an
   already closed transaction is a noop. Always succeeds.
 
   Wraps [mdb_txn_abort()](http://www.lmdb.tech/doc/group__mdb.html#ga73a5938ae4c3239ee11efa07eb22b882)."
-  (when (abortable-txn-p)
-    (without-interrupts
-      (liblmdb:txn-abort (%txnp))
-      (close-txn *txn*))))
+  (let ((active-txn (active-txn-in-env env)))
+    (when (abortable-txn-p active-txn)
+      (without-interrupts
+        (liblmdb:txn-abort (open-%txnp active-txn))
+        (close-txn active-txn)))))
 
-(defun reset-txn ()
+(defun reset-txn (&optional env)
   "Abort the open, read-only TXN, release the reference to the
   historical version of the environment, but make it faster to start
   another read-only transaction with RENEW-TXN. This is accomplished
@@ -1473,27 +1658,29 @@
   read-only transaction, this function always succeeds.
 
   Wraps [mdb_txn_reset()](http://www.lmdb.tech/doc/group__mdb.html#ga02b06706f8a66249769503c4e88c56cd)."
-  (require-open-txn "RESET-TXN")
-  (unless (read-only-txn-p *txn*)
-    (lmdb-error nil "Cannot reset write transaction."))
-  (without-interrupts
-    (liblmdb:txn-reset (%txnp))
-    (set-txn-reset-p)))
+  (let ((active-txn (active-txn-in-env env)))
+    (unless (read-only-txn-p active-txn)
+      (lmdb-error nil "Cannot reset write transaction."))
+    (without-interrupts
+      (liblmdb:txn-reset (open-%txnp active-txn))
+      (set-txn-reset-p active-txn))))
 
-(defun renew-txn ()
+(defun renew-txn (&optional env)
   "Renew TXN that was reset by RESET-TXN. This acquires a new reader
   lock that had been released by RESET-TXN. After renewal, it is as if
   TXN had just been started.
 
   Wraps [mdb_txn_renew()](http://www.lmdb.tech/doc/group__mdb.html#ga6c6f917959517ede1c504cf7c720ce6d)."
-  (unless (txn-reset-p)
-    (lmdb-error nil "Cannot renew transaction because it was not reset."))
-  (without-interrupts
-    (let ((return-code (liblmdb:txn-renew (%txnp))))
-      (alexandria:switch (return-code)
-        (0 (clear-txn-reset-p)
-           nil)
-        (t (lmdb-error return-code))))))
+  (let ((active-txn (active-txn-in-env env)))
+    (unless (txn-reset-p active-txn)
+      (lmdb-error nil "Cannot renew transaction because it was not reset."))
+    (without-interrupts
+      (let ((return-code (liblmdb:txn-renew
+                          (%txnp (txn-%txna active-txn)))))
+        (alexandria:switch (return-code)
+          (0 (clear-txn-reset-p active-txn)
+             nil)
+          (t (lmdb-error return-code)))))))
 
 (defsection @nesting-transactions (:title "Nesting transactions")
   """When WITH-TXNs are nested (i.e. one is executed in the dynamic
@@ -1511,7 +1698,7 @@
   WITH-TXNs nested in another WITH-TXNs into noops.
 
   ```
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "test" :if-does-not-exist :create
                       :value-encoding :uint64)))
       ;; Create a top-level write transaction.
@@ -1550,8 +1737,8 @@
   other than COMMIT-TXN and ABORT-TXN while there are active child
   transactions. As the Lisp side does not expose transaction objects
   directly, performing @BASIC-OPERATIONS in the parent transaction is
-  not possible. See the description of MULTITHREADED NIL case of
-  WITH-CURSOR for a more complete picture.
+  not possible, but it is possible with @CURSORS as they are tied to
+  the transaction in which they were created.
 
   IGNORE-PARENT true overrides the default nesting semantics of
   WITH-TXN and creates a new top-level transaction, which is not a
@@ -1605,23 +1792,24 @@
   (drop-db function)
   (db-statistics function))
 
-(defclass db ()
-  (;; This is an unsigned int.
-   (dbi :initarg :dbi :reader %dbi)
-   (name
-    :reader db-name
-    :initarg :name
-    :type string
-    :documentation "The name of the database.")
-   (env :initarg :env :reader db-env)
-   (key-encoding
-    :initarg :key-encoding
-    :reader db-key-encoding)
-   (value-encoding
-    :initarg :value-encoding
-    :reader db-value-encoding))
-  (:documentation "A database in an environment (class ENV). Always to
-   be created by GET-DB."))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defclass db ()
+    (;; This is an unsigned int.
+     (dbi :initarg :dbi :reader %dbi)
+     (name
+      :reader db-name
+      :initarg :name
+      :type string
+      :documentation "The name of the database.")
+     (env :initarg :env :reader db-env)
+     (key-encoding
+      :initarg :key-encoding
+      :reader db-key-encoding)
+     (value-encoding
+      :initarg :value-encoding
+      :reader db-value-encoding))
+    (:documentation "A database in an environment (class ENV). Always to
+     be created by GET-DB.")))
 
 (defmethod print-object ((object db) stream)
   (let ((*print-pretty* nil))
@@ -1694,6 +1882,7 @@
   subsequent open to another named database.
 
   Wraps [mdb_dbi_open()](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a)."
+  (check-type env env)
   (check-type key-encoding encoding)
   (check-type value-encoding encoding)
   (when integer-key
@@ -1736,8 +1925,9 @@
                    "Reached maximum number of named databases."))
                  (t
                   (lmdb-error return-code)))))))
-    (when (open-txn-p)
-      (lmdb-error nil "GET-DB must not be called in a open transaction."))
+    (let ((active-txn (active-txn-in-env env)))
+      (when (and active-txn (%open-txn-p active-txn))
+        (lmdb-error nil "GET-DB must not be called in a open transaction.")))
     (without-interrupts
       ;; "This function must not be called from multiple concurrent
       ;; transactions in the same process. A transaction that uses
@@ -1747,29 +1937,28 @@
         (with-txn (:env env :write (eq if-does-not-exist :create))
           (%open-db))))))
 
-(defun drop-db (name &key (delete t) (env *env*))
-  "Empty the database with NAME in ENV. If DELETE, then delete it from
-  ENV and close it. Since closing a database is dangerous (see
-  GET-DB), to minimize the chance of races, DROP-DB opens the *closed*
-  environment ENV itself.
+(defun drop-db (name path &key open-env-args (delete t))
+  "Empty the database with NAME in the environment denoted by PATH. If
+  DELETE, then delete the database. Since closing a database is
+  dangerous (see GET-DB), DROP-DB opens and closes the environment
+  itself.
 
   Wraps [mdb_drop()](http://www.lmdb.tech/doc/group__mdb.html#gab966fab3840fc54a6571dfb32b00f2db)."
-  (unless (and env (not (open-env-p env)))
-    (lmdb-error nil "~S is not closed." env))
   (without-interrupts
-    (with-env (env)
-      (let ((db (get-db name :env env)))
-        (with-txn (:write t :env env :ignore-parent t)
-          (liblmdb:drop (%txnp) (%dbi db) (if delete 1 0)))))))
+    (let ((env (apply #'open-env path open-env-args)))
+      (unwind-protect
+           (let ((db (get-db name :env env)))
+             (with-txn (:write t :env env :ignore-parent t)
+               (liblmdb:drop (%txnp) (%dbi db) (if delete 1 0))))
+        (close-env env)))))
 
 (defun db-statistics (db)
   "Return statistics about the database.
 
   Wraps [mdb_stat()](http://www.lmdb.tech/doc/group__mdb.html#gae6c1069febe94299769dbdd032fadef6)."
   (cffi:with-foreign-object (%stat '(:struct liblmdb:stat))
-    (require-open-txn "DB-STATISTICS")
     (without-interrupts
-      (liblmdb:stat (%txnp) (%dbi db) %stat))
+      (liblmdb:stat (open-%txnp-for-db db) (%dbi db) %stat))
     (macrolet ((slot (slot)
                  `(cffi:foreign-slot-value %stat '(:struct liblmdb:stat)
                                            ',slot)))
@@ -1783,8 +1972,7 @@
 (defun db-flags (db)
   (without-interrupts
     (cffi:with-foreign-object (%flagsp :uint)
-      (require-open-txn "DB-FLAGS")
-      (liblmdb:dbi-flags (%txnp) (%dbi db) %flagsp)
+      (liblmdb:dbi-flags (open-%txnp-for-db db) (%dbi db) %flagsp)
       (cffi:mem-ref %flagsp :uint))))
 
 
@@ -1878,7 +2066,7 @@
   this:
 
   ```
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "test" :if-does-not-exist :create)))
       (with-txn (:write t)
         (put db "key1" "abc")
@@ -2134,7 +2322,8 @@
   (async-signal-safe
     (with-val (%key (encode-key db key))
       (with-empty-val (%val)
-        (let ((return-code (liblmdb:get (%txnp) (%dbi db) %key %val)))
+        (let ((return-code (liblmdb:get (open-%txnp-for-db db) (%dbi db)
+                                        %key %val)))
           (alexandria:switch (return-code)
             ;; This is the only thing that conses here with raw octets ...
             (0 (values (decode-value db %val) t))
@@ -2170,7 +2359,7 @@
     (with-val (%key (encode-key db key))
       (with-val (%val (encode-value db value))
         (let ((return-code
-                (liblmdb:put (%txnp) (%dbi db) %key %val
+                (liblmdb:put (open-%txnp-for-db db) (%dbi db) %key %val
                              (logior
                               (if dupdata 0 liblmdb:+nodupdata+)
                               (if overwrite 0 liblmdb:+nooverwrite+)
@@ -2198,12 +2387,13 @@
     (without-interrupts
       (if (null value)
           (with-val (%key (encode-key db key))
-            (let ((return-code (liblmdb:del (%txnp) (%dbi db)
+            (let ((return-code (liblmdb:del (open-%txnp-for-db db) (%dbi db)
                                             %key +null-pointer+)))
               (handle-return-code return-code)))
           (with-val (%key (encode-key db key))
             (with-val (%val (encode-value db value))
-              (let ((return-code (liblmdb:del (%txnp) (%dbi db) %key %val)))
+              (let ((return-code (liblmdb:del (open-%txnp-for-db db) (%dbi db)
+                                              %key %val)))
                 (handle-return-code return-code))))))))
 
 
@@ -2221,9 +2411,9 @@
 (defstruct cursor
   %cursorp
   (txn nil :type txn)
-  db
-  thread
-  multithreaded)
+  (env nil :type env)
+  (db nil :type db)
+  thread)
 
 (declaim (inline %cursorp))
 (defun %cursorp (cursor)
@@ -2233,25 +2423,27 @@
 (defun check-cursor (cursor)
   (declare (optimize speed))
   (let* ((thread (cursor-thread cursor))
-         (in-other-thread (not (eq thread (bt:current-thread)))))
-    (when (and (not (cursor-multithreaded cursor)) in-other-thread)
+         (in-other-thread (not (eq thread (bt:current-thread))))
+         (txn (cursor-txn cursor)))
+    (when in-other-thread
       (lmdb-error +cursor-thread+))
-    ;; Can't check from another thread whether the cursor transaction
-    ;; has a child.
-    (unless in-other-thread
-      (let ((txn (cursor-txn cursor)))
-        (declare (type txn txn))
-        (unless (eq txn *txn*)
-          (if (open-txn-p)
-              (lmdb-error +illegal-access-to-parent-txn+)
-              (lmdb-error liblmdb:+bad-txn+)))))))
+    (unless (%open-txn-p txn)
+      (lmdb-error liblmdb:+bad-txn+))
+    (let ((active-txn (if (eq txn *txn*)
+                          txn
+                          (active-txn-in-env (cursor-env cursor) t))))
+      (declare (type txn txn active-txn))
+      (unless (eq txn active-txn)
+        (if (%open-txn-p active-txn)
+            (lmdb-error +illegal-access-to-parent-txn+)
+            (lmdb-error liblmdb:+bad-txn+))))))
 
 (defun %open-cursor (db)
   (declare (optimize speed))
-  (require-open-txn "WITH-CURSOR")
   ;; WITHOUT-INTERRUPTS is in WITH-CURSOR.
   (cffi:with-foreign-object (%cursorpp :pointer)
-    (let ((return-code (liblmdb:cursor-open (%txnp) (%dbi db) %cursorpp)))
+    (let ((return-code (liblmdb:cursor-open (open-%txnp-for-db db) (%dbi db)
+                                            %cursorpp)))
       (if (zerop return-code)
           (aligned-pointer-to-fixnum (cffi:mem-ref %cursorpp :pointer))
           (lmdb-error return-code)))))
@@ -2264,26 +2456,13 @@
   (liblmdb:cursor-close (%cursorp cursor))
   (setf (cursor-%cursorp cursor) nil))
 
-(defmacro with-cursor ((var db &key multithreaded) &body body)
+(defmacro with-cursor ((var db) &body body)
   "Bind VAR to a fresh CURSOR on DB. Execute BODY, then close the
   cursor. Within the dynamic extent of BODY, this will be the
   @DEFAULT-CURSOR. The cursor is tied to the @ACTIVE-TRANSACTION.
 
-  If MULTITHREADED is NIL, LMDB-CURSOR-THREAD-ERROR is signalled if
-  the cursor is accessed from threads other than the one in which it
-  was created.
-
-  If MULTITHREADED is true, this safety check is disabled and code is
-  trusted to never access the cursor when the dynamic extent of the
-  corresponding WITH-CURSOR is left. If the code performs its own
-  synchronization to ensure that the cursor is live, then it is safe
-  to use from multiple threads. Note that for read-only transactions -
-  since cursors are tied to transactions - the environment must be
-  opened with :TLS NIL (see OPEN-ENV).
-
-  MULTITHREADED true signals LMDB-CURSOR-THREAD-ERROR in write
-  transactions because they must never be accessed accessed by more
-  than one thread.
+  LMDB-CURSOR-THREAD-ERROR is signalled if the cursor is accessed from
+  threads other than the one in which it was created.
 
   Wraps [mdb_cursor_open()](http://www.lmdb.tech/doc/group__mdb.html#ga9ff5d7bd42557fd5ee235dc1d62613aa)
   and [mdb_cursor_close()](http://www.lmdb.tech/doc/group__mdb.html#gad685f5d73c052715c7bd859cc4c05188)."
@@ -2291,26 +2470,24 @@
     `(flet ((,with-cursor-body (,var)
               ,@body))
        (declare (dynamic-extent #',with-cursor-body))
-       (call-with-cursor #',with-cursor-body ,db ,multithreaded))))
+       (call-with-cursor #',with-cursor-body ,db))))
 
 (defvar *default-cursor* nil)
 #+sbcl
 (declaim (sb-ext:always-bound *default-cursor*))
 
-(defun call-with-cursor (fn db multithreaded)
+(defun call-with-cursor (fn db)
   (declare (type function fn)
            (optimize speed))
-  (when (and multithreaded (not (read-only-txn-p *txn*)))
-    (lmdb-error +cursor-thread+ "Creating a multithreaded cursor in a write ~
-                                transaction is not allowed."))
-  (without-interrupts
-    (let ((*default-cursor* (make-cursor :%cursorp (%open-cursor db)
-                                         :txn *txn* :db db
-                                         :thread (bt:current-thread)
-                                         :multithreaded multithreaded)))
-      (unwind-protect
-           (with-interrupts (funcall fn *default-cursor*))
-        (close-cursor *default-cursor*)))))
+  (let* ((env (db-env db))
+         (active-txn (active-txn-in-env env)))
+    (without-interrupts
+      (let ((*default-cursor* (make-cursor :%cursorp (%open-cursor db)
+                                           :env env :txn active-txn :db db
+                                           :thread (bt:current-thread))))
+        (unwind-protect
+             (with-interrupts (funcall fn *default-cursor*))
+          (close-cursor *default-cursor*))))))
 
 (defmacro with-implicit-cursor ((db) &body body)
   "Like WITH-CURSOR, but the cursor object is not accessible directly,
@@ -2321,15 +2498,14 @@
 
   Use WITH-IMPLICIT-CURSOR instead of WITH-CURSOR if a single cursor
   at a time will suffice. Conversely, use WITH-CURSOR if a second
-  cursor is needed or the MULTITHREADED option is necessary. That is,
-  use
+  cursor is needed. That is, use
 
   ```
   (with-implicit-cursor (db)
     (cursor-set-key 1))
   ```
 
-  but when two cursor iterate in an interleaved manner, use
+  but when two cursors iterate in an interleaved manner, use
   WITH-CURSOR:
 
   ```
@@ -2355,9 +2531,11 @@
   (declare (type function fn)
            (optimize speed))
   (without-interrupts
-    (let ((*default-cursor* (make-cursor :%cursorp (%open-cursor db)
-                                         :txn *txn* :db db
-                                         :thread (bt:current-thread))))
+    (let* ((env (db-env db))
+           (active-txn (active-txn-in-env env t))
+           (*default-cursor* (make-cursor :%cursorp (%open-cursor db)
+                                          :env env :txn active-txn :db db
+                                          :thread (bt:current-thread))))
       (declare (type cursor *default-cursor*)
                (dynamic-extent *default-cursor*))
       (unwind-protect
@@ -2854,10 +3032,13 @@
   Wraps [mdb_cursor_renew()](http://www.lmdb.tech/doc/group__mdb.html#gac8b57befb68793070c85ea813df481af)."
   (let ((cursor (or cursor *default-cursor*)))
     (without-interrupts
-      (let ((return-code (liblmdb:cursor-renew (%txnp) (%cursorp cursor))))
+      (let ((return-code (liblmdb:cursor-renew (open-%txnp-for-db
+                                                (cursor-db cursor))
+                                               (%cursorp cursor))))
         (alexandria:switch (return-code)
           (0 (setf (cursor-thread cursor) (bt:current-thread))
-             (setf (cursor-txn cursor) *txn*)
+             (setf (cursor-txn cursor)
+                   (active-txn-in-env (cursor-env cursor) t))
              (values))
           (t (lmdb-error return-code)))))))
 

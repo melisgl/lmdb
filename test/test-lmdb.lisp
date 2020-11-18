@@ -56,25 +56,25 @@
 
 (defun test-zero-map-size ()
   (with-temporary-env (*env*)
-    (get-db "db" :if-does-not-exist :create)
+    (get-db "db")
     (close-env *env*)
     (setf (slot-value *env* 'lmdb::map-size) 0)
     (setq *env* (open-env (env-path *env*)))))
 
 (defun test-db ()
   (with-temporary-env (*env*)
-    (get-db "db" :if-does-not-exist :create)))
+    (get-db "db")))
 
 (defun test-drop-db ()
   (with-temporary-env (*env*)
-    (get-db "db" :if-does-not-exist :create)
+    (get-db "db")
     (assert (typep (get-db "db")' db))
     (assert-error (lmdb-error) (drop-db "db" (env-path *env*)))
     (close-env *env*)
     (drop-db "db" (env-path *env*))
     (setq *env* (open-env (env-path *env*)))
     (assert-error (lmdb-not-found-error "Database \"db\" not found")
-      (get-db "db"))))
+      (get-db "db" :if-does-not-exist :error))))
 
 (defun test-db-flags ()
   (loop for (option-keyword flag-value) in
@@ -85,14 +85,12 @@
           (:reverse-dup ,liblmdb:+reversedup+)
           (:dupfixed ,liblmdb:+dupfixed+))
         do (with-temporary-env (*env*)
-             (let ((db (get-db "db" :if-does-not-exist :create
-                               option-keyword t)))
+             (let ((db (get-db "db" option-keyword t)))
                (with-txn ()
                  (assert (= flag-value (lmdb::db-flags db)))))
              (close-env *env*)
              (setq *env* (open-env (env-path *env*)))
-             (let ((db (get-db "db" :if-does-not-exist :create
-                               option-keyword nil)))
+             (let ((db (get-db "db" option-keyword nil)))
                (with-txn ()
                  (assert (= flag-value (lmdb::db-flags db))))))))
 
@@ -137,7 +135,7 @@
           (with-temporary-env (*env* :max-dbs 2)
             (dolist (dupsort '(nil t))
               (let ((db (get-db (format nil "db~A" dupsort)
-                                :if-does-not-exist :create :dupsort dupsort
+                                :dupsort dupsort
                                 :key-encoding (and declare-encoding
                                                    encoding)
                                 :value-encoding (and declare-encoding
@@ -187,7 +185,7 @@
 
 (defun test-closed-txn ()
   (with-temporary-env (*env* :max-dbs 2)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+    (let ((db (get-db "db")))
       (with-txn (:write t)
         (abort-txn)
         (assert-error (lmdb-bad-txn-error)
@@ -201,7 +199,7 @@
   (with-temporary-env (*env* :max-dbs 2)
     (dolist (dupsort '(nil t))
       (let ((db (get-db (format nil "db~A" dupsort)
-                        :if-does-not-exist :create :dupsort dupsort)))
+                        :dupsort dupsort)))
         (with-txn (:write t)
           ;; Empty DB
           (with-cursor (cur db)
@@ -263,7 +261,7 @@
 
 (defun test-cursor-create ()
   (with-temporary-env (*env*)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+    (let ((db (get-db "db")))
       (with-txn ()
         (commit-txn)
         (assert-error (lmdb-bad-txn-error)
@@ -282,7 +280,7 @@
 
 (defun test-cursor-dup ()
   (with-temporary-env (*env*)
-    (let ((db (get-db "db" :if-does-not-exist :create :dupsort t)))
+    (let ((db (get-db "db" :dupsort t)))
       (with-txn (:write t)
         (put db #(1) #(2))
         (put db #(1) #(2 1))
@@ -332,7 +330,7 @@
 
 (defun test-cursor-put-del ()
   (with-temporary-env (*env*)
-    (let ((db (get-db "db" :if-does-not-exist :create :dupsort t)))
+    (let ((db (get-db "db" :dupsort t)))
       (with-txn (:write t)
         (with-cursor (cur db)
           (cursor-put #(1) #(2) cur)
@@ -349,7 +347,7 @@
 
 (defun test-commit-and-cursor ()
   (with-temporary-env (*env*)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+    (let ((db (get-db "db")))
       (with-txn (:write t)
         (put db #(1) #(2))
         (with-cursor (cur db)
@@ -361,7 +359,7 @@
 
 (defun test-iteration ()
   (with-temporary-env (*env*)
-    (let ((db (get-db "db" :if-does-not-exist :create :dupsort t)))
+    (let ((db (get-db "db" :dupsort t)))
       (with-txn (:write t)
         (put db #(1) #(2))
         (put db #(1) #(2 1))
@@ -451,7 +449,7 @@
 
 (defun test-renew-txn ()
   (with-temporary-env (*env*)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+    (let ((db (get-db "db")))
       (with-txn (:write t)
         (put db #(1) #(2))
         (put db #(3) #(4))
@@ -469,7 +467,7 @@
 
 (defun test-nested-txn ()
   (with-temporary-env (*env*)
-    (let ((db (get-db (format nil "db") :if-does-not-exist :create)))
+    (let ((db (get-db (format nil "db"))))
       (with-txn (:write t)
         (assert (null (g3t db #(1))))
         (put db #(5) #(6))
@@ -499,7 +497,7 @@
   (with-temporary-env (env)
     (with-txn (:env env :write t)
       (with-temporary-env (*env*)
-        (let ((db (get-db "db" :if-does-not-exist :create)))
+        (let ((db (get-db "db")))
           (with-txn (:write t)
             (assert (null (g3t db #(1))))
             (put db #(5) #(6))
@@ -548,7 +546,7 @@
 
 (defun test-commit-and-renew-cursor ()
   (with-temporary-env (*env*)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+    (let ((db (get-db "db")))
       (with-txn (:write t)
         (put db #(1) #(2)))
       (with-txn ()
@@ -566,7 +564,7 @@
 
 (defun test-abort-and-renew-cursor ()
   (with-temporary-env (*env*)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+    (let ((db (get-db "db")))
       (with-txn (:write t)
         (put db #(1) #(2)))
       (with-txn ()
@@ -584,7 +582,7 @@
 
 (defun test-reset-and-renew-cursor ()
   (with-temporary-env (*env*)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+    (let ((db (get-db "db")))
       (with-txn (:write t)
         (put db #(1) #(2)))
       (with-txn ()
@@ -602,7 +600,7 @@
 
 (defun test-parent-illegal-op ()
   (with-temporary-env (*env*)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+    (let ((db (get-db "db")))
       (with-txn (:write t)
         (put db #(1) #(1))
         (with-cursor (cursor db)
@@ -616,7 +614,7 @@
 
 (defun test-cursor-txn-reuse ()
   (with-temporary-env (*env*)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+    (let ((db (get-db "db")))
       (with-txn (:write t)
         (put db #(1) #(1)))
       (with-txn ()

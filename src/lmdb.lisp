@@ -197,7 +197,7 @@
 
   ```
   (with-temporary-env (*env*)
-    (let ((db (get-db "test" :if-does-not-exist :create)))
+    (let ((db (get-db "test")))
       (with-txn (:write t)
         (put db "k1" #(2 3))
         (print (g3t db "k1")) ; => #(2 3)
@@ -212,8 +212,7 @@
 
   (unless *env*
     (setq *env* (open-env "/tmp/lmdb-test-env/" :if-does-not-exist :create))
-    (setq *test-db* (get-db "test" :if-does-not-exist :create
-                                   :value-encoding :utf-8)))
+    (setq *test-db* (get-db "test")))
 
   (with-txn (:write t)
     (put *test-db* 1 "hello")
@@ -618,7 +617,7 @@
 
   ```
   (with-temporary-env (*env*)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+    (let ((db (get-db "db")))
       (with-txn (:write t)
         (put db #(1) #(1))
         (with-cursor (cursor db)
@@ -1233,7 +1232,7 @@
 
   ```
   (with-temporary-env (*env*)
-    (let ((db (get-db "test" :if-does-not-exist :create)))
+    (let ((db (get-db "test")))
       (with-txn (:write t)
         (put db "k1" #(2 3))
         (print (g3t db "k1")) ; => #(2 3)
@@ -1242,8 +1241,8 @@
 
   Since data corruption in temporary environments is not a concern,
   unlike WITH-ENV, WITH-TEMPORARY-ENV closes the environment even if
-  it was opened with
-  :SYNCHRONIZED NIL (see OPEN-ENV and CLOSE-ENV)."""
+  it was opened with :SYNCHRONIZED NIL (see OPEN-ENV and
+  CLOSE-ENV)."""
   (alexandria:with-gensyms (path)
     `(call-with-temporary-env
       (lambda (,path)
@@ -1329,7 +1328,7 @@
 
   ```
   (with-temporary-env (env)
-    (let ((db (get-db "db" :env env :if-does-not-exist :create)))
+    (let ((db (get-db "db" :env env)))
       (with-temporary-env (inner-env)
         (with-txn (:env env :write t)
           (with-txn (:env inner-env)
@@ -1699,8 +1698,7 @@
 
   ```
   (with-temporary-env (env)
-    (let ((db (get-db "test" :if-does-not-exist :create
-                      :value-encoding :uint64)))
+    (let ((db (get-db "test" :value-encoding :uint64)))
       ;; Create a top-level write transaction.
       (with-txn (:write t)
         (put db "p" 0)
@@ -1822,7 +1820,7 @@
   '(member nil :uint64 :octets :utf-8))
 
 (defun get-db (name &key (env *env*)
-               (if-does-not-exist :error)
+               (if-does-not-exist :create)
                key-encoding value-encoding
                integer-key reverse-key
                dupsort integer-dup reverse-dup dupfixed)
@@ -2031,7 +2029,7 @@
 
   ```
   (with-temporary-env (env)
-    (let ((db (get-db "test" :if-does-not-exist :create)))
+    (let ((db (get-db "test")))
       (with-txn (:write t)
         (put db "key1" (cpk:encode (list :some "stuff" 42)))
         (cpk:decode (g3t db "key1")))))
@@ -2066,7 +2064,7 @@
 
   ```
   (with-temporary-env (*env*)
-    (let ((db (get-db "test" :if-does-not-exist :create)))
+    (let ((db (get-db "test")))
       (with-txn (:write t)
         (put db "key1" "abc")
         (let ((*value-decoder* (lambda (mdb-val)

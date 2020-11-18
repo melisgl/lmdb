@@ -6,8 +6,7 @@
 (defun test-string-perf ()
   (progn                     ;sb-sprof:with-profiling (:report :graph)
     (with-temporary-env (*env* :synchronized nil)
-      (let ((db (get-db "db" :if-does-not-exist :create
-                        :value-encoding :utf-8)))
+      (let ((db (get-db "db" :key-encoding :octets :value-encoding :octets)))
         (declare (optimize speed))
         (let ((k "lkjdslkfdsaafiupoewiu324kjasdflkjadsfsaf")
               (v "lkjdsafiupoewiru324kjasdflkjadsfsaf"))
@@ -25,7 +24,7 @@
 
 (defun test-octets-write-perf ()
   (with-temporary-env (*env* :sync t :meta-sync nil)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+    (let ((db (get-db "db")))
       (declare (optimize speed))
       (progn                 ;sb-sprof:with-profiling (:report :graph)
         (let ((k (make-array 10 :element-type 'lmdb::octet))
@@ -40,7 +39,7 @@
 
 (defun test-octets-perf ()
   (with-temporary-env (*env*)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+    (let ((db (get-db "db")))
       (declare (optimize speed))
       (let ((k (make-array 100 :element-type 'lmdb::octet))
             (v (make-array 4000 :element-type 'lmdb::octet)))
@@ -59,7 +58,7 @@
 
 (defun test-cursor-perf ()
   (with-temporary-env (*env*)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+    (let ((db (get-db "db")))
       (declare (optimize speed))
       (let ((k (make-array 100 :element-type 'lmdb::octet))
             (v (make-array 4000 :element-type 'lmdb::octet)))
@@ -79,7 +78,7 @@
 
 (defun test-implicit-cursor-perf ()
   (with-temporary-env (*env*)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+    (let ((db (get-db "db")))
       (declare (optimize speed))
       (let ((k (make-array 100 :element-type 'lmdb::octet))
             (v (make-array 4000 :element-type 'lmdb::octet)))
@@ -119,7 +118,7 @@
 (defun test-manual-cpk-perf ()
   (sb-sprof:with-profiling (:report :graph)
     (with-temporary-env (*env*)
-      (let ((db (get-db "db" :if-does-not-exist :create)))
+      (let ((db (get-db "db")))
         (declare (optimize speed))
         (let ((k 1)
               (v (cpk:encode (make-xxx))))

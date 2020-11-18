@@ -213,6 +213,26 @@
                                                  :key-exists-error-p nil))
                        '(nil)))))))
 
+(defun test-encoding-override ()
+  (with-temporary-env (*env*)
+    (let ((db (get-db "db" :key-encoding :uint64 :value-encoding :uint64)))
+      (with-txn (:write t)
+        (let ((*key-encoder* 'string-to-octets)
+              (*value-encoder* :utf-8)
+              (*value-decoder* 'mdb-val-to-string))
+          (put db "a" "b")
+          (assert (equal (get db "a") "b")))))))
+
+(defun test-encoding-functions ()
+  (with-temporary-env (*env*)
+    (let ((db (get-db "db" :key-encoding (cons #'string-to-octets
+                                               #'mdb-val-to-octets)
+                      :value-encoding (cons #'string-to-octets
+                                            #'mdb-val-to-octets))))
+      (with-txn (:write t)
+        (put db "a" "b")
+        (assert (equalp (get db "a") #(98 0)))))))
+
 (defun test-closed-txn ()
   (with-temporary-env (*env* :max-dbs 2)
     (let ((db (get-db "db")))
@@ -668,6 +688,8 @@
   (test-queries)
   (test-put)
   (test-put-dup)
+  (test-encoding-override)
+  (test-encoding-functions)
   (test-closed-txn)
   (test-cursor)
   (test-cursor-create)

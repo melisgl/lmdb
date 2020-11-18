@@ -212,7 +212,7 @@
 
   (unless *env*
     (setq *env* (open-env "/tmp/lmdb-test-env/" :if-does-not-exist :create))
-    (setq *test-db* (get-db "test")))
+    (setq *test-db* (get-db "test" :value-encoding :utf-8)))
 
   (with-txn (:write t)
     (put *test-db* 1 "hello")
@@ -1797,6 +1797,8 @@
   (get-db function)
   (db class)
   (db-name (reader db))
+  (db-key-encoding (reader db))
+  (db-value-encoding (reader db))
   (drop-db function)
   (db-statistics function))
 
@@ -1812,10 +1814,16 @@
      (env :initarg :env :reader db-env)
      (key-encoding
       :initarg :key-encoding
-      :reader db-key-encoding)
+      :type encoding
+      :reader db-key-encoding
+      :documentation "The ENCODING that was passed as KEY-ENCODING to
+      GET-DB.")
      (value-encoding
       :initarg :value-encoding
-      :reader db-value-encoding))
+      :type encoding
+      :reader db-value-encoding
+      :documentation "The ENCODING that was passed as VALUE-ENCODING
+      to GET-DB."))
     (:documentation "A database in an environment (class ENV). Always to
    be created by GET-DB.")))
 
@@ -1827,7 +1835,37 @@
                               "?")))))
 
 (deftype encoding ()
-  '(member nil :uint64 :octets :utf-8))
+  """The following values are supported:
+
+  - :UINT64: Data to be encoded must be of type `(UNSIGNED-BYTE 64)`,
+    which is then encoded as an 8 byte array in _native_ byte order
+    with UINT64-TO-OCTETS. The reverse transformation takes place when
+    returning values. This is the encoding used for INTEGER-KEY and
+    INTEGER-DUP DBs.
+
+  - :OCTETS: Note the plural. Data to be encoded (e.g. KEY argument of
+    G3T) must be a 1D byte array. If its element type
+    is `(UNSIGNED-BYTE 8)`, then the data can be passed to the foreign
+    code more efficiently, but declaring the element type is not
+    required. For example, VECTORs can be used as long as the actual
+    elements are of type `(UNSIGNED-BYTE 8)`. Foreign byte arrays to
+    be decoded (e.g. the value returned by G3T) are returned as
+    OCTETS.
+
+  - :UTF-8: Data to be encoded must be a string, which is converted to
+    octets by TRIVIAL-UTF-8. Null-terminated. Foreign byte arrays are
+    decoded the same way.
+
+  - NIL: Data is encoded using the default encoding according to its
+    Lisp type: strings as :UTF-8, vectors as :OCTETS, `(UNSIGNED-BYTE
+    64)` as :UINT64. Decoding is always performed as :OCTETS.
+
+  - A CONS: Data is encoded by the function in the CAR of the cons and
+    decoded by the function in the CDR. For example, :UINT64 is
+    equivalent to `(CONS #'UINT64-TO-OCTETS #'MDB-VAL-TO-UINT64)`.
+  """
+  `(or (member nil :uint64 :octets :utf-8)
+       cons))
 
 (defvar *db-class* 'db
   "The default class that GET-DB instantiates. Must a subclass of DB.
@@ -1855,7 +1893,11 @@
   :OCTETS or :UTF-8. KEY-ENCODING is set to :UINT64 when INTEGER-KEY
   is true. VALUE-ENCODING is set to :UINT64 when INTEGER-DUP is true.
   Note that changing the encoding does *not* reencode already existing
-  data. encoding. See @ENCODINGS for their full semantics.
+  data. See @ENCODINGS for the full semantics.
+
+  GET-DB may be called more than once with the same NAME and ENV, and
+  the returned DB objects will have the same underlying lmdb database,
+  but they may have different KEY-ENCODING and VALUE-ENCODING.
 
   The recommended practice is to open a database in a process once.
   This leaves the db open for use in subsequent transactions.
@@ -1995,86 +2037,231 @@
 (defsection @encodings (:title "Encoding and decoding data")
   """In the C lmdb library, keys and values are opaque byte vectors
   only ever inspected internally to maintain the sort order (of keys
-  and duplicate values if @DUPSORT). The client is given the freedom
-  and the responsibility to choose how to perform conversion to and
-  from byte vectors.
+  and also duplicate values if @DUPSORT). The client is given the
+  freedom and the responsibility to choose how to perform conversion
+  to and from byte vectors.
 
   LMDB exposes this full flexibility while at the same time providing
   reasonable defaults for the common cases. In particular, with the
   KEY-ENCODING and VALUE-ENCODING arguments of GET-DB, the
   data (meaning the key or value here) encoding can be declared
-  explicitly. The following values are supported:
-
-  - :UINT64: Data to be encoded must be of type '(UNSIGNED-BYTE 64)`,
-    which is then encoded as an 8 byte array in _native_ byte order.
-    The reverse transformation takes place when returning values. This
-    is the encoding used for INTEGER-KEY and INTEGER-DUP DBs.
-
-  - :OCTETS: Note the plural. Data to be encoded (e.g. KEY argument of
-    G3T) must be a 1D byte array. If its element type
-    is `(UNSIGNED-BYTE 8)`, then the data can be passed to the foreign
-    code more efficiently, but declaring the element type is not
-    required. For example, VECTORs can be used as long as the actual
-    elements are of type `(UNSIGNED-BYTE 8)`. Foreign byte arrays to
-    be decoded (e.g. the value returned by G3T) are simply returned as
-    a Lisp array.
-
-  - :UTF-8: Data to be encoded must be a string, which is converted to
-    octets by TRIVIAL-UTF-8. Null-terminated. Foreign byte arrays are
-    decoded the same way.
-
-  - NIL: Data is encoded using the default encoding according to its
-    Lisp type: strings as :UTF-8, vectors as :OCTETS, `(UNSIGNED-BYTE
-    64)` as :UINT64. Decoding is always performed as :OCTETS.
+  explicitly.
 
   Even if the encoding is undeclared, it is recommended to use a
   single type for keys (and duplicate values) to avoid unexpected
   conflicts that could arise, for example, when the UTF-8 encoding of
   a string and the :UINT64 encoding of an integer coincide. The same
   consideration doubly applies to named databases, which share the key
-  space with normal key-value pairs in the default database.
+  space with normal key-value pairs in the default database (see
+  @UNNAMED-DATABASE).
 
   Together, :UINT64 and :UTF-8 cover the common cases for keys. They
   trade off dynamic typing for easy sortability (using the default C
-  lmdb behaviour). On the other hand, non-duplicate values (i.e. no
-  @DUPSORT), for which there is no sorting requirement, may be
-  serialized more freely. For this purpose, using an encoding of
-  :OCTETS or NIL with
+  lmdb behaviour). On the other hand, when sorting is not
+  concern (either for keys and values), serialization may be done more
+  freely. For this purpose, using an encoding of :OCTETS or NIL with
   [cl-conspack](https://github.com/conspack/cl-conspack) is
   recommended because it works with complex objects, it encodes object
   types, it is fast and space-efficient, has a stable specification
   and an alternative implementation in C. For example:
 
   ```
-  (with-temporary-env (env)
+  (with-temporary-env (*env*)
     (let ((db (get-db "test")))
       (with-txn (:write t)
         (put db "key1" (cpk:encode (list :some "stuff" 42)))
         (cpk:decode (g3t db "key1")))))
   => (:SOME "stuff" 42)
   ```
-  """
-  (@special-encodings section))
 
-(defsection @special-encodings (:title "Special encodings")
+  Note that multiple DB objects with different encodings can be
+  associated with the same C lmdb database, which declutters the code:
+
+  ```
+  (defvar *cpk-encoding*
+    (cons #'cpk:encode (alexandria:compose #'cpk:decode #'mdb-val-to-octets)))
+
+  (with-temporary-env (*env*)
+    (let ((next-id-db (get-db "test" :key-encoding *cpk-encoding*
+                                     :value-encoding :uint64))
+          (db (get-db "test" :key-encoding *cpk-encoding*
+                             :value-encoding *cpk-encoding*)))
+      (with-txn (:write t)
+        (let ((id (or (g3t next-id-db :next-id) 0)))
+          (put next-id-db :next-id (1+ id))
+          (put db id (list :some "stuff" 42))
+          (g3t db id)))))
+  => (:SOME "stuff" 42)
+  => T
+  ```
+  """
+  (encoding type)
+  (with-mdb-val-slots macro)
+  (octets type)
+  (mdb-val-to-octets function)
+  (uint64-to-octets function)
+  (octets-to-uint64 function)
+  (mdb-val-to-uint64 function)
+  (string-to-octets function)
+  (octets-to-string function)
+  (mdb-val-to-string function)
+  (@overriding-encodings section))
+
+(defmacro with-mdb-val-slots ((%bytes size mdb-val) &body body)
+  "Bind %BYTES and SIZE locally to the corresponding slots of MDB-VAL.
+  MDB-VAL is an opaque handle for a foreign `MDB_val` struct, that
+  holds the pointer to a byte array and the number of bytes in the
+  array. This macro is needed to access the foreign data in a function
+  used as *KEY-DECODER* or *VALUE-DECODER*. MDB-VAL is dynamic extent,
+  so don't hold on to it. Also, the pointer to which %BYTES is bound
+  is valid only within the context of current top-level transaction."
+  (alexandria:with-gensyms (%val)
+    `(let* ((,%val (fixnum-to-aligned-pointer ,mdb-val))
+            (,%bytes (cffi:foreign-slot-value ,%val '(:struct liblmdb:val)
+                                              'liblmdb:mv-data))
+            (,size (cffi:foreign-slot-value ,%val '(:struct liblmdb:val)
+                                            'liblmdb:mv-size)))
+       (declare (type cffi:foreign-pointer ,%bytes)
+                (type fixnum ,size))
+       ,@body)))
+
+(deftype octet () '(unsigned-byte 8))
+(deftype octets (&optional (size '*))
+  "A 1D SIMPLE-ARRAY of `(UNSIGNED-BYTE 8)`."
+  `(simple-array octet (,size)))
+
+(cffi:defcfun ("memcpy" ) :int
+  (dest :pointer)
+  (src :pointer)
+  (n liblmdb::size-t))
+
+(defun mdb-val-to-octets (mdb-val)
+  "A utility function provided for writing *KEY-DECODER* and
+  *VALUE-DECODER* functions. It returns a Lisp octet vector that holds
+  the same bytes as MDB-VAL."
+  (declare (type fixnum mdb-val))
+  (with-mdb-val-slots (%bytes size mdb-val)
+    ;; For small sizes, do it in Lisp to avoid the calling overhead.
+    (if (< size 20)
+        (let ((octets (make-array size :element-type 'octet)))
+          (declare (optimize (speed 3) (safety 0) (space 0) (debug 0)))
+          (dotimes (i size)
+            (setf (aref octets i) (cffi:mem-aref %bytes :unsigned-char i)))
+          octets)
+        (let ((octets (cffi:make-shareable-byte-vector size)))
+          (declare (type octets octets))
+          (cffi:with-pointer-to-vector-data (ptr octets)
+            (memcpy ptr %bytes size))
+          octets))))
+
+;;; This is variable and not a constant for testing purposes.
+(defvar *endianness*
+  #+little-endian :little-endian
+  #+big-endian :big-endian)
+
+(defun uint64-to-octets (n)
+  "Convert an `(UNSIGNED-BYTE 64)` to OCTETS of length 8 taking the
+  native byte order representation of N. Suitable as a *KEY-ENCODER*
+  or *VALUE-ENCODER*."
+  (declare (type (unsigned-byte 64) n)
+           (optimize speed))
+  (let ((octets (make-array 8 :element-type 'octet)))
+    (declare (type octets octets))
+    (if (eq *endianness* :little-endian)
+        (progn
+          (setf (aref octets 0) (ldb (byte 8 (* 0 8)) n))
+          (setf (aref octets 1) (ldb (byte 8 (* 1 8)) n))
+          (setf (aref octets 2) (ldb (byte 8 (* 2 8)) n))
+          (setf (aref octets 3) (ldb (byte 8 (* 3 8)) n))
+          (setf (aref octets 4) (ldb (byte 8 (* 4 8)) n))
+          (setf (aref octets 5) (ldb (byte 8 (* 5 8)) n))
+          (setf (aref octets 6) (ldb (byte 8 (* 6 8)) n))
+          (setf (aref octets 7) (ldb (byte 8 (* 7 8)) n)))
+        (progn
+          (setf (aref octets 7) (ldb (byte 8 (* 0 8)) n))
+          (setf (aref octets 6) (ldb (byte 8 (* 1 8)) n))
+          (setf (aref octets 5) (ldb (byte 8 (* 2 8)) n))
+          (setf (aref octets 4) (ldb (byte 8 (* 3 8)) n))
+          (setf (aref octets 3) (ldb (byte 8 (* 4 8)) n))
+          (setf (aref octets 2) (ldb (byte 8 (* 5 8)) n))
+          (setf (aref octets 1) (ldb (byte 8 (* 6 8)) n))
+          (setf (aref octets 0) (ldb (byte 8 (* 7 8)) n))))
+    octets))
+
+(defun octets-to-uint64 (octets)
+  "The inverse of UINT64-TO-OCTETS. Use MDB-VAL-TO-UINT64 as a
+  *KEY-DECODER* or *VALUE-DECODER*."
+  (declare (type (octets 8) octets))
+  (let ((n 0))
+    (declare (type (unsigned-byte 64) n)
+             (optimize speed))
+    (if (eq *endianness* :little-endian)
+        (loop for i below 8
+              do (setf (ldb (byte 8 (* i 8)) n) (aref octets i)))
+        (loop for i below 8
+              do (setf (ldb (byte 8 (* (- 7 i) 8)) n) (aref octets i))))
+    n))
+
+(defun mdb-val-to-uint64 (mdb-val)
+  "Like OCTETS-TO-UINT64, but suitable for *KEY-DECODER* or
+  *VALUE-DECODER* that decodes unsigned 64 bit integers in native byte
+  order. This function is called automatically when the encoding is
+  known to require it (see GET-DB's INTEGER-KEY, :VALUE-ENCODING,
+  etc)."
+  (declare (type fixnum mdb-val))
+  (with-mdb-val-slots (%bytes size mdb-val)
+    (declare (ignore size))
+    (let ((n 0))
+      (declare (type (unsigned-byte 64) n)
+               (optimize speed))
+      (if (eq *endianness* :little-endian)
+          (loop for i below 8
+                do (setf (ldb (byte 8 (* i 8)) n)
+                         (cffi:mem-aref %bytes :unsigned-char i)))
+          (loop for i below 8
+                do (setf (ldb (byte 8 (* (- 7 i) 8)) n)
+                         (cffi:mem-aref %bytes :unsigned-char i))))
+      n)))
+
+(defun string-to-octets (string)
+  "Convert STRING to OCTETS by encoding it as UTF-8 with null
+  termination. Suitable as a *KEY-ENCODER* or *VALUE-ENCODER*."
+  (trivial-utf-8:string-to-utf-8-bytes string :null-terminate t))
+
+(defun octets-to-string (octets)
+  "The inverse of STRING-TO-OCTETS. Use MDB-VAL-TO-STRING as a
+  *KEY-DECODER* or *VALUE-DECODER*."
+  (trivial-utf-8:utf-8-bytes-to-string octets :end (1- (length octets))))
+
+(defun mdb-val-to-string (mdb-val)
+  "Like OCTETS-TO-STRING, but suitable as a *KEY-DECODER* or
+  *VALUE-DECODER*."
+  (let ((octets (mdb-val-to-octets mdb-val)))
+    (trivial-utf-8:utf-8-bytes-to-string octets :end (1- (length octets)))))
+
+
+(defsection @overriding-encodings (:title "Overriding encodings")
+  "Using multiple DB objects with different encodings is the
+  recommended practice (see the example in @ENCODINGS), but when that
+  is inconvenient, one can override the encodings with the following
+  variables."
   (*key-encoder* variable)
   (*key-decoder* variable)
   (*value-encoder* variable)
-  (*value-decoder* variable)
-  (with-mdb-val-slots macro)
-  (%bytes-to-octets function))
+  (*value-decoder* variable))
 
 (defvar *key-encoder* nil
-  "A function designator or NIL. If non-NIL, it overrides the encoding
-  method determined by KEY-ENCODING (see GET-DB). It is called with a
-  single argument when a key is to be converted to an octet vector.")
+  "A function designator, NIL or an ENCODING. If non-NIL, it overrides
+  the encoding method determined by KEY-ENCODING (see GET-DB). It is
+  called with a single argument, the key, when it is to be converted
+  to an octet vector.")
 
 (defvar *key-decoder* nil
-  """A function designator or NIL. If non-NIL, it is called with a
-  single MDB-VAL argument (see WITH-MDB-VAL-SLOTS), that holds a
-  pointer to data to be decoded and its size. This function is called
-  whenever a key is to be decoded and overrides the KEY-ENCODING
-  argument of GET-DB.
+  """A function designator, NIL or an ENCODING. If non-NIL, it is
+  called with a single MDB-VAL argument (see WITH-MDB-VAL-SLOTS), that
+  holds a pointer to data to be decoded and its size. This function is
+  called whenever a key is to be decoded and overrides the
+  KEY-ENCODING argument of GET-DB.
 
   For example, if we are only interested in the length of the value
   and want to avoid creating a lisp vector on the heap, we can do
@@ -2107,187 +2294,15 @@
   foreign functions such as `write()` directly from the decoder
   function and returning a constant such as T to avoid consing.")
 
-(defmacro with-mdb-val-slots ((%bytes size mdb-val) &body body)
-  "Bind %BYTES and SIZE locally to the corresponding slots of MDB-VAL.
-  MDB-VAL is an opaque handle for a foreign `MDB_val` struct, that
-  holds the pointer to a byte array and the number of bytes in the
-  array. This macro is needed to access the foreign data in a function
-  used as *KEY-DECODER* or *VALUE-DECODER*. MDB-VAL is dynamic extent,
-  so don't hold on to it. Also, the pointer to which %BYTES is bound
-  is valid only within the context of current top-level transaction."
-  (alexandria:with-gensyms (%val)
-    `(let* ((,%val (fixnum-to-aligned-pointer ,mdb-val))
-            (,%bytes (cffi:foreign-slot-value ,%val '(:struct liblmdb:val)
-                                              'liblmdb:mv-data))
-            (,size (cffi:foreign-slot-value ,%val '(:struct liblmdb:val)
-                                            'liblmdb:mv-size)))
-       (declare (type cffi:foreign-pointer ,%bytes)
-                (type fixnum ,size))
-       ,@body)))
+#+sbcl
+(declaim (sb-ext:always-bound *key-encoder* *key-decoder*
+                              *value-encoder* *value-decoder*))
+
 
-(deftype octet () '(unsigned-byte 8))
-(deftype octets (&optional (size '*)) `(simple-array octet (,size)))
+;;;; WITH-VAL and WITH-EMPTY-VAL
 
-(cffi:defcfun ("memcpy" ) :int
-  (dest :pointer)
-  (src :pointer)
-  (n liblmdb::size-t))
-
-(defun %bytes-to-octets (mdb-val)
-  "A utility function provided for writing *KEY-DECODER* and
-  *VALUE-DECODER* functions. It returns a Lisp octet vector that holds
-  the same bytes as MDB-VAL."
-  (declare (type fixnum mdb-val))
-  (with-mdb-val-slots (%bytes size mdb-val)
-    ;; For small sizes, do it in Lisp to avoid the calling overhead.
-    (if (< size 20)
-        (let ((octets (make-array size :element-type 'octet)))
-          (declare (optimize (speed 3) (safety 0) (space 0) (debug 0)))
-          (dotimes (i size)
-            (setf (aref octets i) (cffi:mem-aref %bytes :unsigned-char i)))
-          octets)
-        (let ((octets (cffi:make-shareable-byte-vector size)))
-          (declare (type octets octets))
-          (cffi:with-pointer-to-vector-data (ptr octets)
-            (memcpy ptr %bytes size))
-          octets))))
-
-(defun string-to-utf-8-bytes-with-null-termination (string)
-  (trivial-utf-8:string-to-utf-8-bytes string :null-terminate t))
-
-(defun utf-8-bytes-with-null-termination-to-string (aligned-%val)
-  (let ((octets-with-null-termination (%bytes-to-octets aligned-%val)))
-    (trivial-utf-8:utf-8-bytes-to-string
-     octets-with-null-termination
-     :end (1- (length octets-with-null-termination)))))
-
-;;; Returning a CFFI shareable vector would reduce allocation and
-;;; copying. Or use CFFI:WITH-FOREIGN-OBJECT. We'd need to know the
-;;; size of the output for either, which we do for some encodings.
-(declaim (inline encode-data))
-(defun encode-data (encoding data)
-  (when (null encoding)
-    (setq encoding (etypecase data
-                     ((unsigned-byte 64) :uint64)
-                     (string :utf-8)
-                     (vector :octets))))
-  (ecase encoding
-    ((:uint64) (encode-native-uint64 data))
-    ((:octets) data)
-    ((:utf-8) (string-to-utf-8-bytes-with-null-termination data))))
-
-(declaim (inline decode-data))
-(defun decode-data (encoding aligned-%val)
-  (ecase encoding
-    ((:uint64) (decode-native-uint64 aligned-%val))
-    ((:octets nil) (%bytes-to-octets aligned-%val))
-    ((:utf-8) (utf-8-bytes-with-null-termination-to-string aligned-%val))))
-
-(defmacro encode-key (db data)
-  (alexandria:once-only (data)
-    `(if *key-encoder*
-         (funcall (coerce *key-encoder* 'function) ,data)
-         (encode-data (db-key-encoding ,db) ,data))))
-
-(defmacro encode-value (db data)
-  (alexandria:once-only (data)
-    `(if *value-encoder*
-         (funcall (coerce *value-encoder* 'function) ,data)
-         (encode-data (db-value-encoding ,db) ,data))))
-
-(defmacro decode-key (db %val)
-  (alexandria:with-gensyms (mdb-val)
-    `(let ((,mdb-val (aligned-pointer-to-fixnum ,%val)))
-       (if *key-decoder*
-           (funcall (coerce *key-decoder* 'function) ,mdb-val)
-           (decode-data (db-key-encoding ,db) ,mdb-val)))))
-
-(defmacro decode-value (db %val)
-  (alexandria:with-gensyms (mdb-val)
-    `(let ((,mdb-val (aligned-pointer-to-fixnum ,%val)))
-       (if *value-decoder*
-           (funcall (coerce *value-decoder* 'function) ,mdb-val)
-           (decode-data (db-value-encoding ,db) ,mdb-val)))))
-
-(defvar *endianness*
-  #+little-endian :little-endian
-  #+big-endian :big-endian)
-
-(defun encode-native-uint64 (n)
-  (declare (type (unsigned-byte 64) n)
-           (optimize speed))
-  (let ((octets (make-array 8 :element-type 'octet)))
-    (declare (type octets octets))
-    (if (eq *endianness* :little-endian)
-        (progn
-          (setf (aref octets 0) (ldb (byte 8 (* 0 8)) n))
-          (setf (aref octets 1) (ldb (byte 8 (* 1 8)) n))
-          (setf (aref octets 2) (ldb (byte 8 (* 2 8)) n))
-          (setf (aref octets 3) (ldb (byte 8 (* 3 8)) n))
-          (setf (aref octets 4) (ldb (byte 8 (* 4 8)) n))
-          (setf (aref octets 5) (ldb (byte 8 (* 5 8)) n))
-          (setf (aref octets 6) (ldb (byte 8 (* 6 8)) n))
-          (setf (aref octets 7) (ldb (byte 8 (* 7 8)) n)))
-        (progn
-          (setf (aref octets 7) (ldb (byte 8 (* 0 8)) n))
-          (setf (aref octets 6) (ldb (byte 8 (* 1 8)) n))
-          (setf (aref octets 5) (ldb (byte 8 (* 2 8)) n))
-          (setf (aref octets 4) (ldb (byte 8 (* 3 8)) n))
-          (setf (aref octets 3) (ldb (byte 8 (* 4 8)) n))
-          (setf (aref octets 2) (ldb (byte 8 (* 5 8)) n))
-          (setf (aref octets 1) (ldb (byte 8 (* 6 8)) n))
-          (setf (aref octets 0) (ldb (byte 8 (* 7 8)) n))))
-    octets))
-
-(defun decode-native-uint64 (aligned-%octets)
-  "A function suitable for *KEY-DECODER* or *VALUE-DECODER* that
-  decodes native unsigned 64 bit integers. This function is called
-  automatically when the encoding is known to require it (see GET-DB's
-  INTEGER-KEY, :VALUE-ENCODING, etc). It is provided to decode values
-  manually."
-  (declare (type fixnum aligned-%octets))
-  (with-mdb-val-slots (%bytes size aligned-%octets)
-    (declare (ignore size))
-    (let ((n 0))
-      (declare (type (unsigned-byte 64) n)
-               (optimize speed))
-      (if (eq *endianness* :little-endian)
-          (loop for i below 8
-                do (setf (ldb (byte 8 (* i 8)) n)
-                         (cffi:mem-aref %bytes :unsigned-char i)))
-          (loop for i below 8
-                do (setf (ldb (byte 8 (* (- 7 i) 8)) n)
-                         (cffi:mem-aref %bytes :unsigned-char i))))
-      n)))
-
-(declaim (inline init-%val))
-(defun init-%val (%valp %bytes size)
-  (setf (cffi:foreign-slot-value %valp '(:struct liblmdb:val) 'liblmdb:mv-data)
-        %bytes)
-  (setf (cffi:foreign-slot-value %valp '(:struct liblmdb:val) 'liblmdb:mv-size)
-        size))
-
-(declaim (inline copy-foreign-value))
-(defun copy-foreign-value (%data n data)
-  (declare (type fixnum n))
-  (typecase data
-    (octets
-     (locally
-         (declare (optimize speed (safety 0))
-                  (octets data))
-       (dotimes (i n)
-         (setf (cffi:mem-aref %data :unsigned-char i) (aref data i)))))
-    (simple-base-string
-     (locally
-         (declare (optimize speed (safety 0))
-                  (simple-base-string data))
-       (dotimes (i n)
-         (setf (cffi:mem-aref %data :unsigned-char i)
-               (char-code (aref data i))))))
-    (t
-     (dotimes (i n)
-       (setf (cffi:mem-aref %data :unsigned-char i) (aref data i))))))
-
+;;; Bind %VALP to a pointer to an mdb_val allocated on the stack, set
+;;; its mv_data mv_size slots to DATA.
 (defmacro with-val ((%valp data) &body body)
   (alexandria:once-only (data)
     (alexandria:with-gensyms (%data n with-val-body)
@@ -2318,6 +2333,81 @@
 (defmacro with-empty-val ((%valp) &body body)
   `(cffi:with-foreign-object (,%valp '(:struct liblmdb:val))
      ,@body))
+
+(declaim (type (or encoding symbol function)
+               *key-encoder* *key-decoder* *value-encoder* *value-decoder*))
+;;; Returning a CFFI shareable vector would reduce allocation and
+;;; copying. Or use CFFI:WITH-FOREIGN-OBJECT. We'd need to know the
+;;; size of the output for either, which we do for some encodings.
+(declaim (inline encode-data))
+(defun encode-data (encoding data)
+  (if (consp encoding)
+      (funcall (coerce (car encoding) 'function) data)
+      (let ((encoding (or encoding (etypecase data
+                                     ((unsigned-byte 64) :uint64)
+                                     (string :utf-8)
+                                     (vector :octets)))))
+        (cond ((eq encoding :uint64) (uint64-to-octets data))
+              ((eq encoding :octets) data)
+              ((eq encoding :utf-8) (string-to-octets data))
+              (t (funcall (coerce encoding 'function) data))))))
+
+(declaim (inline decode-data))
+(defun decode-data (encoding mdb-val)
+  (if (consp encoding)
+      (funcall (coerce (cdr encoding) 'function) mdb-val)
+      (cond ((eq encoding :uint64) (mdb-val-to-uint64 mdb-val))
+            ((or (eq encoding :octets) (null encoding))
+             (mdb-val-to-octets mdb-val))
+            ((eq encoding :utf-8) (mdb-val-to-string mdb-val))
+            (t (funcall (coerce encoding 'function) mdb-val)))))
+
+(defmacro encode-key (db data)
+  (alexandria:once-only (data)
+    `(encode-data (or *key-encoder* (db-key-encoding ,db)) ,data)))
+
+(defmacro encode-value (db data)
+  (alexandria:once-only (data)
+    `(encode-data (or *value-encoder* (db-value-encoding ,db)) ,data)))
+
+(defmacro decode-key (db %val)
+  (alexandria:with-gensyms (mdb-val)
+    `(let ((,mdb-val (aligned-pointer-to-fixnum ,%val)))
+       (decode-data (or *key-decoder* (db-key-encoding ,db)) ,mdb-val))))
+
+(defmacro decode-value (db %val)
+  (alexandria:with-gensyms (mdb-val)
+    `(let ((,mdb-val (aligned-pointer-to-fixnum ,%val)))
+       (decode-data (or *value-decoder* (db-value-encoding ,db)) ,mdb-val))))
+
+(declaim (inline init-%val))
+(defun init-%val (%valp %bytes size)
+  (setf (cffi:foreign-slot-value %valp '(:struct liblmdb:val) 'liblmdb:mv-data)
+        %bytes)
+  (setf (cffi:foreign-slot-value %valp '(:struct liblmdb:val) 'liblmdb:mv-size)
+        size))
+
+(declaim (inline copy-foreign-value))
+(defun copy-foreign-value (%data n data)
+  (declare (type fixnum n))
+  (typecase data
+    (octets
+     (locally
+         (declare (optimize speed (safety 0))
+                  (octets data))
+       (dotimes (i n)
+         (setf (cffi:mem-aref %data :unsigned-char i) (aref data i)))))
+    (simple-base-string
+     (locally
+         (declare (optimize speed (safety 0))
+                  (simple-base-string data))
+       (dotimes (i n)
+         (setf (cffi:mem-aref %data :unsigned-char i)
+               (char-code (aref data i))))))
+    (t
+     (dotimes (i n)
+       (setf (cffi:mem-aref %data :unsigned-char i) (aref data i))))))
+
 
 
 (defsection @basic-operations (:title "Basic operations")

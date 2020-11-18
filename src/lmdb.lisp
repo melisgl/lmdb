@@ -714,16 +714,18 @@
 
 (defsection @opening-and-closing-env
     (:title "Opening and closing environments")
+  (*env-class* variable)
   (open-env function)
   (close-env function)
   (*env* variable)
   (with-env macro)
   (open-env-p function))
 
-(defun %make-env (path &key max-dbs max-readers map-size mode
+(defun %make-env (path &key class max-dbs max-readers map-size mode
                   subdir sync meta-sync read-only tls
                   read-ahead lock mem-init fixed-map
                   write-map map-async)
+  (assert (subtypep class 'env))
   (assert (not write-map) () "WRITE-MAP not implemented.")
   (assert (not map-async) () "MAP-ASYNC not implemented.")
   (let ((path (pathname path)))
@@ -734,7 +736,7 @@
         (unless (not (uiop:directory-pathname-p path))
           (lmdb-error nil "Path to environment ~S is a directory, but ~
                           SUBDIR is NIL." path)))
-    (make-instance 'env :path path :max-dbs max-dbs
+    (make-instance class :path path :max-dbs max-dbs
                    :max-readers max-readers :map-size map-size :mode mode
                    :flags (list :subdir subdir :sync sync :meta-sync meta-sync
                                 :read-only read-only :tls tls
@@ -806,7 +808,13 @@
                     path)))
       (ignore-errors (truename path)))))
 
-(defun open-env (path &key (if-does-not-exist :error) (synchronized t)
+(defvar *env-class* 'env
+  "The default class OPEN-ENV instaniates. Must be a subclass of ENV.
+  This provides a way to associate application specific data with ENV
+  objects.")
+
+(defun open-env (path &key (class *env-class*)
+                 (if-does-not-exist :error) (synchronized t)
                  (max-dbs 1) (max-readers 126) (map-size (* 1024 1024))
                  (mode #o664)
                  ;; Supported options
@@ -964,7 +972,8 @@
 
   Wraps [mdb_env_create()](http://www.lmdb.tech/doc/group__mdb.html#gaad6be3d8dcd4ea01f8df436f41d158d4)
   and [mdb_env_open()](http://www.lmdb.tech/doc/group__mdb.html#ga32a193c6bf4d7d5c5d579e71f22e9340)."
-  (let ((env (%make-env path :max-dbs max-dbs :max-readers max-readers
+  (let ((env (%make-env path :class class
+                        :max-dbs max-dbs :max-readers max-readers
                         :map-size map-size :mode mode :subdir subdir
                         :sync sync :meta-sync meta-sync
                         :read-only read-only :tls tls
@@ -1784,6 +1793,7 @@
   duplicate data, as well. See ENV-MAX-KEY-SIZE.")
 
 (defsection @database-api (:title "Database API")
+  (*db-class* variable)
   (get-db function)
   (db class)
   (db-name (reader db))
@@ -1819,7 +1829,12 @@
 (deftype encoding ()
   '(member nil :uint64 :octets :utf-8))
 
-(defun get-db (name &key (env *env*)
+(defvar *db-class* 'db
+  "The default class that GET-DB instantiates. Must a subclass of DB.
+  This provides a way to associate application specific data with DB
+  objects.")
+
+(defun get-db (name &key (class *db-class*) (env *env*)
                (if-does-not-exist :create)
                key-encoding value-encoding
                integer-key reverse-key
@@ -1829,6 +1844,8 @@
   opened. Must not be called from an open transaction. This is because
   GET-DB starts a transaction itself to comply with C lmdb's
   requirements (see @SAFETY).
+
+  CLASS designates the class which will instantiated. See *DB-CLASS*.
 
   If IF-DOES-NOT-EXIST is :CREATE, then a new named database is
   created. If IF-DOES-NOT-EXIST is :ERROR, then an error is signalled
@@ -1880,6 +1897,7 @@
   subsequent open to another named database.
 
   Wraps [mdb_dbi_open()](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a)."
+  (assert (subtypep class 'db))
   (check-type env env)
   (check-type key-encoding encoding)
   (check-type value-encoding encoding)
@@ -1904,7 +1922,7 @@
                                                    (or name +null-pointer+)
                                                    flags %dbip)))
                (alexandria:switch (return-code)
-                 (0 (make-instance 'db :dbi (cffi:mem-ref %dbip :uint)
+                 (0 (make-instance class :dbi (cffi:mem-ref %dbip :uint)
                                    :name name :env env
                                    :key-encoding key-encoding
                                    :value-encoding value-encoding))

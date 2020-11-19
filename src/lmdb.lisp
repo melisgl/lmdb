@@ -2333,7 +2333,19 @@
   Retrieval of other values requires the use of @CURSORS.
 
   This function is called G3T instead of GET to avoid having to shadow
-  CL:GET when importing LMDB.
+  CL:GET when importing the LMDB package. On the other hand, importing
+  the LMDB+ package, which has LMDB::GET exported, requires some
+  shadowing.
+
+  The LMDB+ package is like the LMDB package, but it has `#'LMDB:G3T`
+  fbound to LMDB+:G3T so it probably needs shadowing to avoid conflict
+  with CL:GET:
+
+  ```
+  (defpackage lmdb/test
+    (:shadow #:get)
+    (:use #:cl #:lmdb+))
+  ```
 
   Wraps [mdb_get()](http://www.lmdb.tech/doc/group__mdb.html#ga8bf10cd91d3f3a83a34d04ce6b07992d)."
   (declare (optimize speed))
@@ -2347,6 +2359,16 @@
             (0 (values (decode-value db %val) t))
             (liblmdb:+notfound+ nil)
             (t (lmdb-error return-code))))))))
+
+(defmacro shadow-get (&optional (package *package*))
+  "CL:SHADOW the symbol GET in PACKAGE and make it an alias for
+  LMDB:G3T. Do this at compile time if at the top level."
+  (alexandria:with-gensyms (%package)
+    `(eval-when (:compile-toplevel :load-toplevel :execute)
+       (let ((,%package ,package))
+         (shadow 'get ,%package)
+         (setf (symbol-function (intern (symbol-name 'get) ,%package))
+               #'g3t)))))
 
 (defun put (db key value &key (overwrite t) (dupdata t) append append-dup
             (key-exists-error-p t))

@@ -2348,9 +2348,10 @@
             (liblmdb:+notfound+ nil)
             (t (lmdb-error return-code))))))))
 
-(defun put (db key value &key (overwrite t) (dupdata t) append append-dup)
+(defun put (db key value &key (overwrite t) (dupdata t) append append-dup
+            (key-exists-error-p t))
   "Add a KEY, VALUE pair to DB within TXN (which must support writes).
-  Return VALUE.
+  Returns T on success.
 
   - OVERWRITE: If NIL, signal LMDB-KEY-EXISTS-ERROR if KEY already
     appears in DB.
@@ -2369,6 +2370,9 @@
     in sort order. If the promise is broken, a LMDB-KEY-EXISTS-ERROR
     is signalled.
 
+  - If KEY-EXISTS-ERROR-P is NIL, then instead of signalling
+    LMDB-KEY-EXISTS-ERROR return NIL.
+
   May signal LMDB-MAP-FULL-ERROR, LMDB-TXN-FULL-ERROR,
   LMDB-TXN-READ-ONLY-ERROR.
 
@@ -2384,8 +2388,11 @@
                               (if append liblmdb:+append+ 0)
                               (if append-dup liblmdb:+appenddup+ 0)))))
           (alexandria:switch (return-code)
-            (0 value)
+            (0 t)
             (+eacces+ (lmdb-error +txn-read-only+))
+            (liblmdb:+keyexist+ (if key-exists-error-p
+                                    (lmdb-error return-code)
+                                    nil))
             (t (lmdb-error return-code))))))))
 
 (defun del (db key &key value)

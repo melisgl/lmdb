@@ -2322,6 +2322,7 @@
 
 (defsection @basic-operations (:title "Basic operations")
   (g3t function)
+  (shadow-get macro)
   (put function)
   (del function))
 
@@ -2346,6 +2347,16 @@
             (0 (values (decode-value db %val) t))
             (liblmdb:+notfound+ nil)
             (t (lmdb-error return-code))))))))
+
+(defmacro shadow-get (&optional (package *package*))
+  "CL:SHADOW the symbol GET in PACKAGE and make it an alias for
+  LMDB:G3T. Do this at compile time if at the top level."
+  (alexandria:with-gensyms (%package)
+    `(eval-when (:compile-toplevel :load-toplevel :execute)
+       (let ((,%package ,package))
+         (shadow 'get ,%package)
+         (setf (symbol-function (intern (symbol-name 'get) ,%package))
+               #'g3t)))))
 
 (defun put (db key value &key (overwrite t) (dupdata t) append append-dup
             (key-exists-error-p t))

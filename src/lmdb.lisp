@@ -2164,6 +2164,7 @@
 ;;; Returning a CFFI shareable vector would reduce allocation and
 ;;; copying. Or use CFFI:WITH-FOREIGN-OBJECT. We'd need to know the
 ;;; size of the output for either, which we do for some encodings.
+(declaim (inline encode-data))
 (defun encode-data (encoding data)
   (when (null encoding)
     (setq encoding (etypecase data
@@ -2175,6 +2176,7 @@
     ((:octets) data)
     ((:utf-8) (string-to-utf-8-bytes-with-null-termination data))))
 
+(declaim (inline decode-data))
 (defun decode-data (encoding aligned-%val)
   (ecase encoding
     ((:uint64) (decode-native-uint64 aligned-%val))
@@ -2342,7 +2344,7 @@
           (alexandria:switch (return-code)
             ;; This is the only thing that conses here with raw octets ...
             (0 (values (decode-value db %val) t))
-            (liblmdb:+notfound+ (values nil nil))
+            (liblmdb:+notfound+ nil)
             (t (lmdb-error return-code))))))))
 
 (defun put (db key value &key (overwrite t) (dupdata t) append append-dup)
@@ -3149,8 +3151,7 @@
        (if ,from-end
            (cursor-last)
            (cursor-first))
-       (do-cursor (,key-var ,value-var *default-cursor*
-                            :from-end ,from-end :nodup ,nodup)
+       (do-cursor (,key-var ,value-var nil :from-end ,from-end :nodup ,nodup)
          ,@body))))
 
 (defmacro do-db-dup ((value-var db key &key from-end) &body body)
@@ -3168,7 +3169,7 @@
        (when (nth-value 1 (cursor-set-key ,key))
          (when ,from-end
            (cursor-last-dup))
-         (do-cursor-dup (,value-var *default-cursor* :from-end ,from-end)
+         (do-cursor-dup (,value-var nil :from-end ,from-end)
            ,@body)))))
 
 (defun list-dups (db key &key from-end)

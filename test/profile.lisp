@@ -3,6 +3,27 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (require :sb-sprof))
 
+(defun test-tiny-txn-perf ()
+  (progn                     ;sb-sprof:with-profiling (:report :graph)
+    (with-temporary-env (*env* :synchronized nil)
+      (let ((db (get-db "db" :key-encoding :octets :value-encoding :octets)))
+        (declare (optimize speed))
+        (let ((k (make-array 1 :element-type 'lmdb::octet
+                             :initial-contents '(1)))
+              (v (make-array 1 :element-type 'lmdb::octet
+                             :initial-contents '(2))))
+          (with-txn (:write t)
+            (put db k v))
+          (time
+           (loop repeat 3000000 do
+             (with-txn ()
+               (g3t db k)))))))))
+
+#+nil
+(progn
+  (sb-ext:gc :full t)
+  (test-tiny-txn-perf))
+
 (defun test-string-perf ()
   (progn                     ;sb-sprof:with-profiling (:report :graph)
     (with-temporary-env (*env* :synchronized nil)

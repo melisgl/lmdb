@@ -111,6 +111,12 @@
     `(progn ,@body))
   (defmacro with-interrupts (&body body)
     `(progn ,@body)))
+
+(defmacro unwind-protect* (protected &body cleanup)
+  `(without-interrupts
+     (unwind-protect
+          (with-interrupts ,protected)
+       ,@cleanup)))
 
 
 ;;;; Utilities
@@ -1123,7 +1129,7 @@
   ```
   """
   `(let ((,env (open-env ,path ,@open-env-args)))
-     (unwind-protect
+     (unwind-protect*
           (progn ,@body)
        (close-env ,env))))
 
@@ -1256,8 +1262,8 @@
     `(call-with-temporary-env
       (lambda (,path)
         (with-env (,env ,path :if-does-not-exist :create ,@open-env-args)
-          (unwind-protect
-               (progn ,@body)
+          (unwind-protect*
+              (progn ,@body)
             (unless ,(getf open-env-args :synchronized t)
               (close-env ,env :force t)))))
       ,@open-env-args)))
@@ -1275,8 +1281,8 @@
                    (merge-pathnames (random-string) temp-dir))))
     (assert (not (uiop:directory-exists-p temp-dir)))
     (ensure-directories-exist path)
-    (unwind-protect
-         (funcall fn path)
+    (unwind-protect*
+        (funcall fn path)
       (uiop:delete-directory-tree temp-dir :validate t
                                   :if-does-not-exist :ignore))))
 

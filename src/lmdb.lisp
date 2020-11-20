@@ -111,6 +111,12 @@
     `(progn ,@body))
   (defmacro with-interrupts (&body body)
     `(progn ,@body)))
+
+(defmacro unwind-protect* (protected &body cleanup)
+  `(without-interrupts
+     (unwind-protect
+          (with-interrupts ,protected)
+       ,@cleanup)))
 
 
 ;;;; Utilities
@@ -309,11 +315,12 @@
   It is an error when compiling LMDB if an equivalent facility is not
   found in the Lisp implementation. A warning is signalled if no
   substitute is found for SB-SYS:WITH-INTERRUPTS because this makes
-  the body of WITH-TXN and WITH-CURSOR uninterruptible.
+  the body of WITH-ENV, WITH-TXN, WITH-CURSOR and similar
+  uninterruptible.
 
   Operations that do not modify the database (G3T, CURSOR-FIRST,
-  CURSOR-VALUE and similar) are async unwind safe, and for performance
-  they are called without the above provisions.
+  CURSOR-VALUE, etc) are async unwind safe, and for performance they
+  are called without the above provisions.
 
   Note that the library is not reentrant, so don't call LMDB from
   signal handlers.")
@@ -1123,7 +1130,7 @@
   ```
   """
   `(let ((,env (open-env ,path ,@open-env-args)))
-     (unwind-protect
+     (unwind-protect*
           (progn ,@body)
        (close-env ,env))))
 
@@ -1256,8 +1263,8 @@
     `(call-with-temporary-env
       (lambda (,path)
         (with-env (,env ,path :if-does-not-exist :create ,@open-env-args)
-          (unwind-protect
-               (progn ,@body)
+          (unwind-protect*
+              (progn ,@body)
             (unless ,(getf open-env-args :synchronized t)
               (close-env ,env :force t)))))
       ,@open-env-args)))
@@ -1275,8 +1282,8 @@
                    (merge-pathnames (random-string) temp-dir))))
     (assert (not (uiop:directory-exists-p temp-dir)))
     (ensure-directories-exist path)
-    (unwind-protect
-         (funcall fn path)
+    (unwind-protect*
+        (funcall fn path)
       (uiop:delete-directory-tree temp-dir :validate t
                                   :if-does-not-exist :ignore))))
 

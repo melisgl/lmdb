@@ -3226,18 +3226,20 @@
     (do-cursor (key value cursor)
       (print (cons key value))))
   ```"
-  (alexandria:once-only (cursor from-end nodup)
-    `(multiple-value-bind (,key-var ,value-var) (cursor-key-value ,cursor)
-       (loop while ,key-var do
-         (progn ,@body)
-         (multiple-value-setq (,key-var ,value-var)
-           (if ,from-end
-               (if ,nodup
-                   (cursor-prev-nodup ,cursor)
-                   (cursor-prev ,cursor))
-               (if ,nodup
-                   (cursor-next-nodup ,cursor)
-                   (cursor-next ,cursor))))))))
+  (alexandria:with-gensyms (foundp)
+    (alexandria:once-only (cursor from-end nodup)
+      `(multiple-value-bind (,key-var ,value-var ,foundp)
+           (cursor-key-value ,cursor)
+         (loop while ,foundp do
+           (progn ,@body)
+           (multiple-value-setq (,key-var ,value-var ,foundp)
+             (if ,from-end
+                 (if ,nodup
+                     (cursor-prev-nodup ,cursor)
+                     (cursor-prev ,cursor))
+                 (if ,nodup
+                     (cursor-next-nodup ,cursor)
+                     (cursor-next ,cursor)))))))))
 
 (defmacro do-cursor-dup ((value-var cursor &key from-end) &body body)
   "Iterate over duplicate values with starting from the position of
@@ -3256,13 +3258,15 @@
     (do-cursor-dup (value cursor)
       (print value)))
   ```"
-  (alexandria:once-only (cursor from-end)
-    `(let ((,value-var (cursor-value ,cursor)))
-       (loop while ,value-var do
-         (progn ,@body)
-         (setq ,value-var (if ,from-end
-                              (cursor-prev-dup ,cursor)
-                              (cursor-next-dup ,cursor)))))))
+  (alexandria:with-gensyms (foundp)
+    (alexandria:once-only (cursor from-end)
+      `(multiple-value-bind (,value-var ,foundp) (cursor-value ,cursor)
+         (loop while ,foundp do
+           (progn ,@body)
+           (multiple-value-setq (,value-var ,foundp)
+             (if ,from-end
+                 (cursor-prev-dup ,cursor)
+                 (cursor-next-dup ,cursor))))))))
 
 (defmacro do-db ((key-var value-var db &key from-end nodup) &body body)
   "Iterate over all keys and values in DB. If NODUP, then all but the

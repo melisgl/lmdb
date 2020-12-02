@@ -869,7 +869,7 @@
     committed by the current process. Also, only map size increases
     are persisted into the environment. If the map size is increased
     by another process, and data has grown beyond the range of the
-    current mapsize, startin a new transaction (see WITH-TXN) will
+    current mapsize, starting a new transaction (see WITH-TXN) will
     signal LMDB-MAP-RESIZED-ERROR. If zero is specified for MAP-SIZE,
     then the persisted size is used from the data file. Also see
     LMDB-MAP-FULL-ERROR.
@@ -1741,11 +1741,11 @@
         (assert (null (g3t db "c2"))))))
   ```
 
-  COMMIT-TXN, ABORT-TXN, and RESET-TXN all close the transaction (see
-  OPEN-TXN-P), which prevents database operations such as G3T, PUT,
-  DEL within that transaction. Furthermore, any @CURSORS created in the
-  context of the transaction will no longer be valid (but see
-  CURSOR-RENEW).
+  COMMIT-TXN, ABORT-TXN, and RESET-TXN all close the
+  @ACTIVE-TRANSACTION (see OPEN-TXN-P). When the active transaction is
+  not open, database operations such as G3T, PUT, DEL signal
+  LMDB-BAD-TXN-ERROR. Furthermore, any @CURSORS created in the context
+  of the transaction will no longer be valid (but see CURSOR-RENEW).
 
   An LMDB parent transaction and its cursors must not issue operations
   other than COMMIT-TXN and ABORT-TXN while there are active child

@@ -325,7 +325,8 @@
   Note that the library is not reentrant, so don't call LMDB from
   signal handlers.")
 
-(defsection @deviations-from-the-lmdb-api (:title "Deviations from C lmdb API")
+(defsection @deviations-from-the-lmdb-api
+    (:title "Deviations from the C lmdb API")
   "The following are the most prominent deviations and omissions from
   the C lmdb API in addition to those listed in @SAFETY.
 
@@ -334,7 +335,7 @@
   - [mdb_reader_list()](http://www.lmdb.tech/doc/group__mdb.html#ga8550000cd0501a44f57ee6dff0188744)
     is not implemented.
 
-  - [mdb_env_copy](http://www.lmdb.tech/doc/group__mdb.html#ga5d51d6130325f7353db0955dbedbc378)
+  - [mdb_env_copy()](http://www.lmdb.tech/doc/group__mdb.html#ga5d51d6130325f7353db0955dbedbc378)
     and its close kin are not yet implemented.
 
   ##### Transactions
@@ -346,7 +347,7 @@
 
   - [mdb_set_compare()](http://www.lmdb.tech/doc/group__mdb.html#ga68e47ffcf72eceec553c72b1784ee0fe)
     and [mdb_set_dupsort()](http://www.lmdb.tech/doc/group__mdb.html#gacef4ec3dab0bbd9bc978b73c19c879ae)
-    are not exposed. If this is needed, implement a foreign comparison
+    are not exposed. If they are needed, implement a foreign comparison
     function and call LIBLMDB:SET-COMPARE or LIBLMDB:SET-DUPSORT
     directly or perhaps change the encoding of the data.
 
@@ -355,7 +356,7 @@
     CURSOR-NEXT and CURSOR-VALUE.
 
   - PUT, CURSOR-PUT do not support the
-    [RESERVE](http://www.lmdb.tech/doc/group__mdb__put.html#gac0545c6aea719991e3eae6ccc686efcc)
+    [`RESERVE`](http://www.lmdb.tech/doc/group__mdb__put.html#gac0545c6aea719991e3eae6ccc686efcc)
     flag.")
 
 
@@ -1899,7 +1900,7 @@
   requirements on
   [mdb_dbi_open()](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a) (see
   @SAFETY). Since dbi handles are cached within ENV, subsequent calls
-  do not involve `mdb_dbi_open` and are thus permissible within
+  do not involve `mdb_dbi_open()` and are thus permissible within
   transactions.
 
   CLASS designates the class which will instantiated. See *DB-CLASS*.

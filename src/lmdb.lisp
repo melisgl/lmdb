@@ -709,6 +709,9 @@
       For example, `(:FIXED-MAP NIL :SUBDIR T ...)`.")
      (mode :initarg :mode :reader env-mode)
      (db-lock :initform (bt:make-lock "db-lock") :reader env-db-lock)
+     (db-name-to-dbi
+      :initform (make-hash-table :test #'equal)
+      :reader env-db-name-to-dbi)
      #-sbcl
      (n-txns-lock :initform nil :initarg :n-txns-lock :reader env-n-txns-lock)
      (n-txns :initform nil :initarg :n-txns :reader env-n-txns))
@@ -1886,9 +1889,18 @@
                dupsort integer-dup reverse-dup dupfixed)
   "Open the database with NAME in the open environment ENV, and return
   a DB object. If NAME is NIL, then the @THE-UNNAMED-DATABASE is
-  opened. Must not be called from an open transaction. This is because
-  GET-DB starts a transaction itself to comply with C lmdb's
-  requirements (see @SAFETY).
+  opened.
+
+  If GET-DB is called with the same name multiple times, the returned
+  DB objects will be associated with the same database (although they
+  may not be EQ). The first time GET-DB is called with any given name
+  and environment, it must not be from an open transaction. This is
+  because GET-DB starts a transaction itself to comply with C lmdb's
+  requirements on
+  [mdb_dbi_open()](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a) (see
+  @SAFETY). Since dbi handles are cached within ENV, subsequent calls
+  do not involve `mdb_dbi_open` and are thus permissible within
+  transactions.
 
   CLASS designates the class which will instantiated. See *DB-CLASS*.
 
@@ -1906,9 +1918,6 @@
   the returned DB objects will have the same underlying C lmdb
   database, but they may have different KEY-ENCODING and
   VALUE-ENCODING.
-
-  The recommended practice is to open a database in a process once.
-  This leaves the db open for use in subsequent transactions.
 
   The following flags are for database creation, they do not have any
   effect in subsequent calls (except for the @THE-UNNAMED-DATABASE).
@@ -1991,17 +2000,29 @@
                    "Reached maximum number of named databases."))
                  (t
                   (lmdb-error return-code)))))))
-    (let ((active-txn (active-txn-in-env env)))
-      (when (and active-txn (%open-txn-p active-txn))
-        (lmdb-error nil "GET-DB must not be called in a open transaction.")))
     (without-interrupts
-      ;; "This function must not be called from multiple concurrent
-      ;; transactions in the same process. A transaction that uses
-      ;; this function must finish (either commit or abort) before any
-      ;; other transaction in the process may use this function."
+      ;; mdb_dbi_open documentation says: "This function must not be
+      ;; called from multiple concurrent transactions in the same
+      ;; process. A transaction that uses this function must finish
+      ;; (either commit or abort) before any other transaction in the
+      ;; process may use this function."
       (bt:with-lock-held ((env-db-lock env))
-        (with-txn (:env env :write (eq if-does-not-exist :create))
-          (%open-db))))))
+        (let ((dbi (gethash name (env-db-name-to-dbi env))))
+          (if dbi
+              (make-instance class :dbi dbi
+                             :name name :env env
+                             :key-encoding key-encoding
+                             :value-encoding value-encoding)
+              (progn
+                (let ((active-txn (active-txn-in-env env)))
+                  (when (and active-txn (%open-txn-p active-txn))
+                    (lmdb-error nil "GET-DB must not be called in an open ~
+                                    transaction.")))
+                (let ((db (with-txn (:env env :write (eq if-does-not-exist
+                                                         :create))
+                            (%open-db))))
+                  (setf (gethash name (env-db-name-to-dbi env)) (%dbi db))
+                  db))))))))
 
 (defun drop-db (name path &key open-env-args (delete t))
   "Empty the database with NAME in the environment denoted by PATH. If

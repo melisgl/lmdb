@@ -3,18 +3,38 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (require :sb-sprof))
 
+(defun test-tiny-txn-perf ()
+  (progn                     ;sb-sprof:with-profiling (:report :graph)
+    (with-temporary-env (*env* :synchronized nil)
+      (let ((db (get-db "db" :key-encoding :octets :value-encoding :octets)))
+        (declare (optimize speed))
+        (let ((k (make-array 1 :element-type 'lmdb::octet
+                             :initial-contents '(1)))
+              (v (make-array 1 :element-type 'lmdb::octet
+                             :initial-contents '(2))))
+          (with-txn (:write t)
+            (put db k v))
+          (time
+           (loop repeat 3000000 do
+             (with-txn ()
+               (g3t db k)))))))))
+
+#+nil
+(progn
+  (sb-ext:gc :full t)
+  (test-tiny-txn-perf))
+
 (defun test-string-perf ()
-  (progn;sb-sprof:with-profiling (:report :graph)
-    (with-temporary-env (env)
-      (let ((db (get-db "db" :if-does-not-exist :create
-                        :value-encoding :utf-8)))
+  (progn                     ;sb-sprof:with-profiling (:report :graph)
+    (with-temporary-env (*env* :synchronized nil)
+      (let ((db (get-db "db" :key-encoding :octets :value-encoding :octets)))
         (declare (optimize speed))
         (let ((k "lkjdslkfdsaafiupoewiu324kjasdflkjadsfsaf")
               (v "lkjdsafiupoewiru324kjasdflkjadsfsaf"))
           (with-txn (:write t)
             (put db k v))
           (time
-           (loop repeat 10000000 do
+           (loop repeat 3000000 do
              (with-txn ()
                (g3t db k)))))))))
 
@@ -24,8 +44,8 @@
   (test-string-perf))
 
 (defun test-octets-write-perf ()
-  (with-temporary-env (env :sync t :meta-sync nil)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+  (with-temporary-env (*env* :sync t :meta-sync nil)
+    (let ((db (get-db "db")))
       (declare (optimize speed))
       (progn                 ;sb-sprof:with-profiling (:report :graph)
         (let ((k (make-array 10 :element-type 'lmdb::octet))
@@ -39,8 +59,8 @@
 (test-octets-write-perf)
 
 (defun test-octets-perf ()
-  (with-temporary-env (env)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+  (with-temporary-env (*env*)
+    (let ((db (get-db "db")))
       (declare (optimize speed))
       (let ((k (make-array 100 :element-type 'lmdb::octet))
             (v (make-array 4000 :element-type 'lmdb::octet)))
@@ -58,8 +78,8 @@
   (test-octets-perf))
 
 (defun test-cursor-perf ()
-  (with-temporary-env (env)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+  (with-temporary-env (*env*)
+    (let ((db (get-db "db")))
       (declare (optimize speed))
       (let ((k (make-array 100 :element-type 'lmdb::octet))
             (v (make-array 4000 :element-type 'lmdb::octet)))
@@ -78,8 +98,8 @@
   (test-cursor-perf))
 
 (defun test-implicit-cursor-perf ()
-  (with-temporary-env (env)
-    (let ((db (get-db "db" :if-does-not-exist :create)))
+  (with-temporary-env (*env*)
+    (let ((db (get-db "db")))
       (declare (optimize speed))
       (let ((k (make-array 100 :element-type 'lmdb::octet))
             (v (make-array 4000 :element-type 'lmdb::octet)))
@@ -118,8 +138,8 @@
 #+nil
 (defun test-manual-cpk-perf ()
   (sb-sprof:with-profiling (:report :graph)
-    (with-temporary-env (env)
-      (let ((db (get-db "db" :if-does-not-exist :create)))
+    (with-temporary-env (*env*)
+      (let ((db (get-db "db")))
         (declare (optimize speed))
         (let ((k 1)
               (v (cpk:encode (make-xxx))))

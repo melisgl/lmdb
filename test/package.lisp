@@ -1,3 +1,4 @@
 (defpackage lmdb/test
-  (:use :cl :lmdb)
-  (:export :test))
+  (:shadowing-import-from #:lmdb+ #:get)
+  (:use #:cl #:lmdb)
+  (:export #:test))

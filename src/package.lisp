@@ -2,6 +2,20 @@
   (:documentation "See LMDB:@LMDB-MANUAL.")
   (:use #:common-lisp #:mgl-pax #:named-readtables #:pythonic-string-reader))
 
+(mgl-pax:define-package #:lmdb+
+  (:documentation "Like the LMDB package, but it has LMDB:GET fbound
+  to LMDB:G3T so it probably needs shadowing to avoid conflict with
+  CL:GET:
+
+  ```
+  (defpackage lmdb/test
+    (:shadowing-import-from #:lmdb+ #:get)
+    (:use #:cl #:lmdb))
+  ```")
+  (:shadow #:get)
+  (:use #:cl #:lmdb)
+  (:export #:get))
+
 (cl:defpackage #:liblmdb
   (:use #:cl #:cffi)
   (:shadow :get)

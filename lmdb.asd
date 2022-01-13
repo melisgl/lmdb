@@ -23,7 +23,7 @@
 (asdf:defsystem :lmdb/test
   :licence "MIT, see COPYING."
   :version "0.1"
-  :depends-on (#:lmdb)
+  :depends-on (#:lmdb #:try)
   :components ((:module "test"
                 :serial t
                 :components ((:file "package")

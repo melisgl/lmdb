@@ -1,7 +1,7 @@
 # LMDB Manual
 
 ###### \[in package LMDB\]
-## lmdb ASDF System Details
+## LMDB ASDF System Details
 
 - Version: 0.1
 - Description: Bindings to LMDB, the Lightning Memory-mapped Database.

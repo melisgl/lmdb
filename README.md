@@ -4,7 +4,7 @@
 
 ## Table of Contents
 
-- [1 lmdb ASDF System Details][1e9b]
+- [1 LMDB ASDF System Details][1e9b]
 - [2 Links][4746]
 - [3 Introduction][00ec]
 - [4 Design and implementation][67a2]
@@ -35,10 +35,10 @@
 ###### \[in package LMDB\]
 <a id='x-28-23A-28-284-29-20BASE-CHAR-20-2E-20-22lmdb-22-29-20ASDF-2FSYSTEM-3ASYSTEM-29'></a>
 
-## 1 lmdb ASDF System Details
+## 1 LMDB ASDF System Details
 
 - Version: 0.1
-- Description: Bindings to LMDB, the Lightning Memory-mapped Database.
+- Description: Bindings to [`LMDB`][1e9b], the Lightning Memory-mapped Database.
 - Licence: MIT, see COPYING.
 - Author: Fernando Borretti <eudoxiahp@gmail.com>, James Anderson <james.anderson@setf.de>, Gábor Melis <mega@retes.hu>
 - Maintainer: Fernando Borretti <eudoxiahp@gmail.com>
@@ -64,11 +64,11 @@ Database, is an [ACID](https://en.wikipedia.org/wiki/ACID) key-value
 database with
 [MVCC](https://en.wikipedia.org/wiki/Multiversion_concurrency_control).
 It is a small C library ("C lmdb" from now on), around which [`LMDB`][1e9b] is
-a Common Lisp wrapper. [`LMDB`][1e9b] covers most of C lmdb's functionality,
+a Common Lisp wrapper. `LMDB` covers most of C lmdb's functionality,
 has a simplified API, much needed [Safety][a9f7] checks, and comprehensive
 documentation.
 
-Compared to other key-value stores, [`LMDB`][1e9b]'s distuingishing features
+Compared to other key-value stores, `LMDB`'s distuingishing features
 are:
 
 - Transactions span multiple keys.
@@ -104,9 +104,9 @@ Other notable things:
 
 Do read the [Caveats](http://www.lmdb.tech/doc/), though. On the
 Lisp side, this library **will not work with virtual threads**
-because [`LMDB`][1e9b]'s write locking is tied to native threads.
+because `LMDB`'s write locking is tied to native threads.
 
-Using [`LMDB`][1e9b] is easy:
+Using `LMDB` is easy:
 
 ```
 (with-temporary-env (*env*)
@@ -136,9 +136,9 @@ that multiple threads and transactions can access them:
 Note how `:VALUE-ENCODING` sneaked in above. This was so to make [`G3T`][7258]
 return a string instead of an octet vector.
 
-[`LMDB`][1e9b] treats keys and values as opaque byte arrays to be hung on a B+
+`LMDB` treats keys and values as opaque byte arrays to be hung on a B+
 tree, and only requires a comparison function to be defined over
-keys. [`LMDB`][1e9b] knows how to serialize the types `(UNSIGNED-BYTE 64)` and
+keys. `LMDB` knows how to serialize the types `(UNSIGNED-BYTE 64)` and
 `STRING` (which are often used as keys so sorting must work as
 expected). Serialization of the rest of the datatypes is left to the
 client. See [Encoding and decoding data][3489] for more.
@@ -165,7 +165,7 @@ the following.
   [Caveats](http://www.lmdb.tech/doc/).
 
 - [`CLOSE-ENV`][97d7] waits until all [active transaction][fad5]s are finished before
-  actually closing the environment. Alternatively, if [`OPEN-ENV`][b084] was
+  actually closing the environment. Alternatively, if `OPEN-ENV` was
   called with `:SYNCHRONIZED` `NIL`, to avoid the overhead of
   synchronization, the environment is closed only when garbage
   collected.
@@ -194,15 +194,15 @@ the following.
          database.
 
 - [mdb\_dbi\_close()](http://www.lmdb.tech/doc/group__mdb.html#ga52dd98d0c542378370cd6b712ff961b5)
-  is too dangerous to be exposed as explained in the [`GET-DB`][a8aa]
+  is too dangerous to be exposed as explained in the `GET-DB`
   documentation.
 
-- For similar reasons, [`DROP-DB`][822f] is wrapped in [`WITH-ENV`][5dfb].
+- For similar reasons, [`DROP-DB`][822f] is wrapped in [`WITH-ENV`][ac84].
 
 - [mdb\_env\_set\_mapsize()](http://www.lmdb.tech/doc/group__mdb.html#gaa2506ec8dab3d969b0e609cd82e619e5),
   [mdb\_env\_set\_max\_readers()](http://www.lmdb.tech/doc/group__mdb.html#gae687966c24b790630be2a41573fe40e2),
   and [mdb\_env\_set\_maxdbs()](http://www.lmdb.tech/doc/group__mdb.html#gaa2fc2f1f37cb1115e733b62cab2fcdbc)
-  are only available through [`OPEN-ENV`][b084] because they either require that
+  are only available through `OPEN-ENV` because they either require that
   there are no write transactions or do not work on open environments.
 
 ##### Cursors
@@ -217,21 +217,21 @@ the following.
 
 The C lmdb library handles system calls being interrupted (`EINTR`
 and `EAGAIN`), but unwinding the stack from interrupts in the middle
-of [`LMDB`][1e9b] calls can leave the in-memory data structures such as
+of `LMDB` calls can leave the in-memory data structures such as
 transactions inconsistent. If this happens, their further use risks
-data corruption. For this reason, calls to [`LMDB`][1e9b] are performed with
+data corruption. For this reason, calls to `LMDB` are performed with
 interrupts disabled. For SBCL, this means `SB-SYS:WITHOUT-INTERRUPTS`.
-It is an error when compiling [`LMDB`][1e9b] if an equivalent facility is not
+It is an error when compiling `LMDB` if an equivalent facility is not
 found in the Lisp implementation. A warning is signalled if no
 substitute is found for `SB-SYS:WITH-INTERRUPTS` because this makes
-the body of [`WITH-ENV`][5dfb], [`WITH-TXN`][a030], [`WITH-CURSOR`][7bb1] and similar
+the body of `WITH-ENV`, [`WITH-TXN`][5f15], [`WITH-CURSOR`][e716] and similar
 uninterruptible.
 
 Operations that do not modify the database ([`G3T`][7258], [`CURSOR-FIRST`][1ca8],
 [`CURSOR-VALUE`][1175], etc) are async unwind safe, and for performance they
 are called without the above provisions.
 
-Note that the library is not reentrant, so don't call [`LMDB`][1e9b] from
+Note that the library is not reentrant, so don't call `LMDB` from
 signal handlers.
 
 <a id='x-28LMDB-3A-40DEVIATIONS-FROM-THE-LMDB-API-20MGL-PAX-3ASECTION-29'></a>
@@ -251,7 +251,7 @@ the C lmdb API in addition to those listed in [Safety][a9f7].
 
 ##### Transactions
 
-- Read-only [`WITH-TXN`][a030]s are turned into noops when "nested" (unless
+- Read-only [`WITH-TXN`][5f15]s are turned into noops when "nested" (unless
   `IGNORE-PARENT`).
 
 ##### Databases
@@ -266,7 +266,7 @@ the C lmdb API in addition to those listed in [Safety][a9f7].
   implemented. This functionality would belong in [`PUT`][e21e], [`CURSOR-PUT`][893b],
   [`CURSOR-NEXT`][5ba5] and [`CURSOR-VALUE`][1175].
 
-- [`PUT`][e21e], [`CURSOR-PUT`][893b] do not support the
+- `PUT`, `CURSOR-PUT` do not support the
   [`RESERVE`](http://www.lmdb.tech/doc/group__mdb__put.html#gac0545c6aea719991e3eae6ccc686efcc)
   flag.
 
@@ -359,12 +359,12 @@ DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
 
 ### 6.2 Opening and closing environments
 
-<a id='x-28LMDB-3A-2AENV-CLASS-2A-20-28VARIABLE-29-29'></a>
+<a id='x-28LMDB-3A-2AENV-CLASS-2A-20VARIABLE-29'></a>
 
 - [variable] **\*ENV-CLASS\*** *ENV*
 
     The default class [`OPEN-ENV`][b084] instaniates. Must be a subclass of [`ENV`][783a].
-    This provides a way to associate application specific data with [`ENV`][783a]
+    This provides a way to associate application specific data with `ENV`
     objects.
 
 <a id='x-28LMDB-3AOPEN-ENV-20FUNCTION-29'></a>
@@ -383,12 +383,12 @@ DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
     are not saved in the data file).
     
     `PATH` is the filesystem location of the environment files (see `SUBDIR`
-    below for more). Do not use [`LMDB`][1e9b] data files on remote filesystems,
+    below for more). Do not use `LMDB` data files on remote filesystems,
     even between processes on the same host. This breaks `flock()` on
     some OSes, possibly memory map sync, and certainly sync between
     programs on different hosts.
     
-    `IF-DOES-NOT-EXIST` determines what happens if [`ENV-PATH`][f8f6] does not
+    `IF-DOES-NOT-EXIST` determines what happens if `ENV-PATH` does not
     exists:
     
     - `:ERROR:` An error is signalled.
@@ -411,7 +411,7 @@ DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
       committed by the current process. Also, only map size increases
       are persisted into the environment. If the map size is increased
       by another process, and data has grown beyond the range of the
-      current mapsize, starting a new transaction (see [`WITH-TXN`][a030]) will
+      current mapsize, starting a new transaction (see [`WITH-TXN`][5f15]) will
       signal [`LMDB-MAP-RESIZED-ERROR`][0fe6]. If zero is specified for `MAP-SIZE`,
       then the persisted size is used from the data file. Also see
       [`LMDB-MAP-FULL-ERROR`][a68b].
@@ -419,7 +419,7 @@ DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
     - `MODE`: Unix file mode for files created. The default is `#o664`.
       Has no effect when opening an existing environment.
     
-    The rest of the arguments correspond to [`LMDB`][1e9b] environment flags and
+    The rest of the arguments correspond to `LMDB` environment flags and
     are available in the plist [`ENV-FLAGS`][ee1c].
     
     - `SUBDIR`: If `SUBDIR`, then the path is a directory which holds the
@@ -441,7 +441,7 @@ DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
     - `META-SYNC`: If `NIL`, flush system buffers to disk only once per
       transaction, but omit the metadata flush. Defer that until the
       system flushes files to disk, the next commit of a non-read-only
-      transaction or [`SYNC-ENV`][64b5]. This optimization maintains database
+      transaction or `SYNC-ENV`. This optimization maintains database
       integrity, but a system crash may undo the last committed
       transaction. I.e. it preserves the ACI (atomicity, consistency,
       isolation) but not D (durability) database property.
@@ -450,7 +450,7 @@ DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
       try to modify anything in it.
     
     - `TLS`: Setting it to `NIL` allows each OS thread to have multiple
-      read-only transactions (see [`WITH-TXN`][a030]'s `IGNORE-PARENT` argument). It
+      read-only transactions (see `WITH-TXN`'s `IGNORE-PARENT` argument). It
       also allows and transactions not to be tied to a single thread,
       but that's quite dangerous, see [Safety][a9f7].
     
@@ -499,10 +499,10 @@ DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
       is faster and uses fewer mallocs, but loses protection from
       application bugs like wild pointer writes and other bad updates
       into the database. Incompatible with nested transactions. This may
-      be slightly faster for [`DB`][8400]s that fit entirely in RAM, but is slower
-      for [`DB`][8400]s larger than RAM. Do not mix processes with and without
+      be slightly faster for `DB`s that fit entirely in RAM, but is slower
+      for `DB`s larger than RAM. Do not mix processes with and without
       `WRITE-MAP` on the same environment. This can defeat
-      durability ([`SYNC-ENV`][64b5], etc).
+      durability (`SYNC-ENV`, etc).
     
     - `MAP-ASYNC`: When using `WRITE-MAP`, use asynchronous flushes to disk.
       As with `SYNC` `NIL`, a system crash can then corrupt the database or
@@ -516,7 +516,7 @@ DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
     (setq *env* (open-env "some-path"))
     ```
     
-    is okay for development, too. No need to always do [`WITH-ENV`][5dfb],
+    is okay for development, too. No need to always do [`WITH-ENV`][ac84],
     which does not mesh with threads anyway.
     
     Wraps [mdb\_env\_create()](http://www.lmdb.tech/doc/group__mdb.html#gaad6be3d8dcd4ea01f8df436f41d158d4)
@@ -529,18 +529,18 @@ DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
     Close `ENV` and free the memory. Closing an already closed `ENV` has no effect.
     
     Since accessing [Transactions][7652], [Databases][258b] and [Cursors][d610] after closing
-    their environment would risk database curruption, [`CLOSE-ENV`][97d7] makes
+    their environment would risk database curruption, `CLOSE-ENV` makes
     sure that they are not in use. There are two ways this can happen:
     
-    - If `ENV` was opened `:SYNCHRONIZED` (see [`OPEN-ENV`][b084]), then [`CLOSE-ENV`][97d7]
+    - If `ENV` was opened `:SYNCHRONIZED` (see [`OPEN-ENV`][b084]), then `CLOSE-ENV`
       waits until there are no [active transaction][fad5]s in `ENV` before
       closing it. This requires synchronization and introduces some
       overhead, which might be noticable for workloads involving lots of
       quick read transactions. It is an [`LMDB-ERROR`][7351] to attempt to close
-      an environment in a [`WITH-TXN`][a030] to avoid deadlocks.
+      an environment in a [`WITH-TXN`][5f15] to avoid deadlocks.
     
     - On the other hand, if `SYNCHRONIZED` was `NIL`, then - unless `FORCE` is
-      true - calling [`CLOSE-ENV`][97d7] signals an [`LMDB-ERROR`][7351] to avoid the
+      true - calling `CLOSE-ENV` signals an `LMDB-ERROR` to avoid the
       [Safety][a9f7] issues involved in closing the environment. Environments
       opened with `:SYNCHRONIZED` `NIL` are only closed when they are
       garbage collected and their finalizer is run. Still, for
@@ -549,14 +549,14 @@ DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
     
     Wraps [mdb\_env\_close()](http://www.lmdb.tech/doc/group__mdb.html#ga4366c43ada8874588b6a62fbda2d1e95).
 
-<a id='x-28LMDB-3A-2AENV-2A-20-28VARIABLE-29-29'></a>
+<a id='x-28LMDB-3A-2AENV-2A-20VARIABLE-29'></a>
 
 - [variable] **\*ENV\*** *NIL*
 
     The default [`ENV`][783a] for macros and function that take an environment
     argument.
 
-<a id='x-28LMDB-3AWITH-ENV-20-28MGL-PAX-3AMACRO-29-29'></a>
+<a id='x-28LMDB-3AWITH-ENV-20MGL-PAX-3AMACRO-29'></a>
 
 - [macro] **WITH-ENV** *(ENV PATH &REST OPEN-ENV-ARGS) &BODY BODY*
 
@@ -657,7 +657,7 @@ DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
     
     Wraps [mdb\_env\_get\_maxkeysize()](http://www.lmdb.tech/doc/group__mdb.html#gaaf0be004f33828bf2fb09d77eb3cef94).
 
-<a id='x-28LMDB-3AWITH-TEMPORARY-ENV-20-28MGL-PAX-3AMACRO-29-29'></a>
+<a id='x-28LMDB-3AWITH-TEMPORARY-ENV-20MGL-PAX-3AMACRO-29'></a>
 
 - [macro] **WITH-TEMPORARY-ENV** *(ENV &REST OPEN-ENV-ARGS) &BODY BODY*
 
@@ -677,8 +677,8 @@ DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
     ```
     
     Since data corruption in temporary environments is not a concern,
-    unlike [`WITH-ENV`][5dfb], [`WITH-TEMPORARY-ENV`][5388] closes the environment even if
-    it was opened with `:SYNCHRONIZED` `NIL` (see [`OPEN-ENV`][b084] and
+    unlike [`WITH-ENV`][ac84], `WITH-TEMPORARY-ENV` closes the environment even if
+    it was opened with `:SYNCHRONIZED` `NIL` (see `OPEN-ENV` and
     [`CLOSE-ENV`][97d7]).
 
 <a id='x-28LMDB-3A-40TRANSACTIONS-20MGL-PAX-3ASECTION-29'></a>
@@ -705,7 +705,7 @@ transaction or are discarded. If the parent aborts, all of the
 writes performed in the context of the parent, including those from
 committed child transactions, are discarded.
 
-<a id='x-28LMDB-3AWITH-TXN-20-28MGL-PAX-3AMACRO-29-29'></a>
+<a id='x-28LMDB-3AWITH-TXN-20MGL-PAX-3AMACRO-29'></a>
 
 - [macro] **WITH-TXN** *(&KEY (ENV '\*ENV\*) WRITE IGNORE-PARENT (SYNC T) (META-SYNC T)) &BODY BODY*
 
@@ -714,7 +714,7 @@ committed child transactions, are discarded.
     commit the transaction. Next, if `BODY` performed a non-local exit or
     committing failed, but the transaction is still open, then abort it.
     It is explicitly allowed to call [`COMMIT-TXN`][0147] or [`ABORT-TXN`][eab0] within
-    [`WITH-TXN`][a030].
+    `WITH-TXN`.
     
     Transactions provide ACID guarantees (with `SYNC` and `META-SYNC` both
     on). They span the entire environment, they are not specific to
@@ -729,7 +729,7 @@ committed child transactions, are discarded.
       the state of the environment at the time of their creation and
       thus prevent pages since replaced from being reused.
     
-    - If `IGNORE-PARENT` is true, then in an enclosing [`WITH-TXN`][a030], instead
+    - If `IGNORE-PARENT` is true, then in an enclosing `WITH-TXN`, instead
       of creating a child transaction, start an independent transaction.
     
     - If `SYNC` is `NIL`, then no flushing of buffers will take place after
@@ -747,9 +747,9 @@ committed child transactions, are discarded.
 - [glossary-term] **active transaction**
 
     The active transaction in some environment and thread is the
-    transaction of the innermost [`WITH-TXN`][a030] being executed in the thread
+    transaction of the innermost [`WITH-TXN`][5f15] being executed in the thread
     that belongs to the environment. In most cases, this is simply the
-    enclosing [`WITH-TXN`][a030], but if [`WITH-TXN`][a030]s with different `:ENV` arguments
+    enclosing `WITH-TXN`, but if `WITH-TXN`s with different `:ENV` arguments
     are nested, then it may not be:
     
     ```
@@ -764,7 +764,7 @@ committed child transactions, are discarded.
     In the above example, [`DB`][8400] is known to belong to [`ENV`][783a] so although the
     immediately enclosing transaction belongs to INNER-ENV, [`PUT`][e21e] is
     executed in context of the outer, write transaction because that's
-    the innermost in [`ENV`][783a].
+    the innermost in `ENV`.
     
     Operations that require a transaction always attempt to use the
     active transaction even if it is not open (see [`OPEN-TXN-P`][3b48]).
@@ -817,7 +817,7 @@ committed child transactions, are discarded.
 - [function] **RENEW-TXN** *&OPTIONAL ENV*
 
     Renew `TXN` that was reset by [`RESET-TXN`][ea3b]. This acquires a new reader
-    lock that had been released by [`RESET-TXN`][ea3b]. After renewal, it is as if
+    lock that had been released by `RESET-TXN`. After renewal, it is as if
     `TXN` had just been started.
     
     Wraps [mdb\_txn\_renew()](http://www.lmdb.tech/doc/group__mdb.html#ga6c6f917959517ede1c504cf7c720ce6d).
@@ -840,11 +840,11 @@ committed child transactions, are discarded.
 
 ### 7.1 Nesting transactions
 
-When [`WITH-TXN`][a030]s are nested (i.e. one is executed in the dynamic
+When [`WITH-TXN`][5f15]s are nested (i.e. one is executed in the dynamic
 extent of another), we speak of nested transactions. Transaction can
 be nested to arbitrary levels. Child transactions may be committed
 or aborted independently from their parent transaction (the
-immediately enclosing [`WITH-TXN`][a030]). Committing a child transaction only
+immediately enclosing `WITH-TXN`). Committing a child transaction only
 makes the updates made by it visible to the parent. If the parent
 then aborts, the child's updates are aborted too. If the parent
 commits, all child transactions that were not aborted are committed,
@@ -852,7 +852,7 @@ too.
 
 Actually, the C lmdb library only supports nesting write
 transactions. To simplify usage, the Lisp side turns read-only
-[`WITH-TXN`][a030]s nested in another [`WITH-TXN`][a030]s into noops.
+`WITH-TXN`s nested in another `WITH-TXN`s into noops.
 
 ```
 (with-temporary-env (*env*)
@@ -890,28 +890,28 @@ not open, database operations such as [`G3T`][7258], [`PUT`][e21e], [`DEL`][1852
 of the transaction will no longer be valid (but see [`CURSOR-RENEW`][e544]).
 
 An [`LMDB`][1e9b] parent transaction and its cursors must not issue operations
-other than [`COMMIT-TXN`][0147] and [`ABORT-TXN`][eab0] while there are active child
+other than `COMMIT-TXN` and `ABORT-TXN` while there are active child
 transactions. As the Lisp side does not expose transaction objects
 directly, performing [Basic operations][b471] in the parent transaction is
 not possible, but it is possible with [Cursors][d610] as they are tied to
 the transaction in which they were created.
 
 `IGNORE-PARENT` true overrides the default nesting semantics of
-[`WITH-TXN`][a030] and creates a new top-level transaction, which is not a
-child of the enclosing [`WITH-TXN`][a030].
+`WITH-TXN` and creates a new top-level transaction, which is not a
+child of the enclosing `WITH-TXN`.
 
-- Since [`LMDB`][1e9b] is single-writer, on nesting an `IGNORE-PARENT` write
-  transaction in another write transaction, [`LMDB-BAD-TXN-ERROR`][85dd] is
+- Since `LMDB` is single-writer, on nesting an `IGNORE-PARENT` write
+  transaction in another write transaction, `LMDB-BAD-TXN-ERROR` is
   signalled to avoid the deadlock.
 
-- Nesting a read-only [`WITH-TXN`][a030] with `IGNORE-PARENT` in another
-  read-only [`WITH-TXN`][a030] is [`LMDB-BAD-RSLOT-ERROR`][5349] error with the `TLS`
+- Nesting a read-only `WITH-TXN` with `IGNORE-PARENT` in another
+  read-only `WITH-TXN` is [`LMDB-BAD-RSLOT-ERROR`][5349] error with the `TLS`
   option because it would create two read-only transactions in the
   same thread.
 
 Nesting a read transaction in another transaction would be an
-[`LMDB-BAD-RSLOT-ERROR`][5349] according to the C lmdb library, but a
-read-only [`WITH-TXN`][a030] with `IGNORE-PARENT` `NIL` nested in another [`WITH-TXN`][a030]
+`LMDB-BAD-RSLOT-ERROR` according to the C lmdb library, but a
+read-only `WITH-TXN` with `IGNORE-PARENT` `NIL` nested in another `WITH-TXN`
 is turned into a noop so this edge case is papered over.
 
 <a id='x-28LMDB-3A-40DATABASES-20MGL-PAX-3ASECTION-29'></a>
@@ -948,12 +948,12 @@ duplicate data, as well. See [`ENV-MAX-KEY-SIZE`][4247].
 
 ### 8.3 Database API
 
-<a id='x-28LMDB-3A-2ADB-CLASS-2A-20-28VARIABLE-29-29'></a>
+<a id='x-28LMDB-3A-2ADB-CLASS-2A-20VARIABLE-29'></a>
 
 - [variable] **\*DB-CLASS\*** *DB*
 
     The default class that [`GET-DB`][a8aa] instantiates. Must a subclass of [`DB`][8400].
-    This provides a way to associate application specific data with [`DB`][8400]
+    This provides a way to associate application specific data with `DB`
     objects.
 
 <a id='x-28LMDB-3AGET-DB-20FUNCTION-29'></a>
@@ -964,18 +964,18 @@ duplicate data, as well. See [`ENV-MAX-KEY-SIZE`][4247].
     a [`DB`][8400] object. If `NAME` is `NIL`, then the [The unnamed database][5165] is
     opened.
     
-    If [`GET-DB`][a8aa] is called with the same name multiple times, the returned
-    [`DB`][8400] objects will be associated with the same database (although they
-    may not be EQ). The first time [`GET-DB`][a8aa] is called with any given name
+    If `GET-DB` is called with the same name multiple times, the returned
+    `DB` objects will be associated with the same database (although they
+    may not be EQ). The first time `GET-DB` is called with any given name
     and environment, it must not be from an open transaction. This is
-    because [`GET-DB`][a8aa] starts a transaction itself to comply with C lmdb's
+    because `GET-DB` starts a transaction itself to comply with C lmdb's
     requirements on
     [mdb\_dbi\_open()](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a) (see
     [Safety][a9f7]). Since dbi handles are cached within `ENV`, subsequent calls
     do not involve `mdb_dbi_open()` and are thus permissible within
     transactions.
     
-    `CLASS` designates the class which will instantiated. See [`*DB-CLASS*`][bdba].
+    `CLASS` designates the class which will instantiated. See [`*DB-CLASS*`][4c68].
     
     If `IF-DOES-NOT-EXIST` is `:CREATE`, then a new named database is
     created. If `IF-DOES-NOT-EXIST` is `:ERROR`, then an error is signalled
@@ -987,8 +987,8 @@ duplicate data, as well. See [`ENV-MAX-KEY-SIZE`][4247].
     Note that changing the encoding does *not* reencode already existing
     data. See [Encoding and decoding data][3489] for the full semantics.
     
-    [`GET-DB`][a8aa] may be called more than once with the same `NAME` and `ENV`, and
-    the returned [`DB`][8400] objects will have the same underlying C lmdb
+    `GET-DB` may be called more than once with the same `NAME` and `ENV`, and
+    the returned `DB` objects will have the same underlying C lmdb
     database, but they may have different `KEY-ENCODING` and
     `VALUE-ENCODING`.
     
@@ -1047,14 +1047,14 @@ duplicate data, as well. See [`ENV-MAX-KEY-SIZE`][4247].
 
 - [reader] **DB-KEY-ENCODING** *DB* *(:KEY-ENCODING)*
 
-    The [`ENCODING`][b093] that was passed as `KEY-ENCODING` to
+    The [`ENCODING`][c5ec] that was passed as `KEY-ENCODING` to
     [`GET-DB`][a8aa].
 
 <a id='x-28LMDB-3ADB-VALUE-ENCODING-20-28MGL-PAX-3AREADER-20LMDB-3ADB-29-29'></a>
 
 - [reader] **DB-VALUE-ENCODING** *DB* *(:VALUE-ENCODING)*
 
-    The [`ENCODING`][b093] that was passed as `VALUE-ENCODING`
+    The [`ENCODING`][c5ec] that was passed as `VALUE-ENCODING`
     to [`GET-DB`][a8aa].
 
 <a id='x-28LMDB-3ADROP-DB-20FUNCTION-29'></a>
@@ -1063,7 +1063,7 @@ duplicate data, as well. See [`ENV-MAX-KEY-SIZE`][4247].
 
     Empty the database with `NAME` in the environment denoted by `PATH`. If
     `DELETE`, then delete the database. Since closing a database is
-    dangerous (see [`GET-DB`][a8aa]), [`DROP-DB`][822f] opens and closes the environment
+    dangerous (see [`GET-DB`][a8aa]), `DROP-DB` opens and closes the environment
     itself.
     
     Wraps [mdb\_drop()](http://www.lmdb.tech/doc/group__mdb.html#gab966fab3840fc54a6571dfb32b00f2db).
@@ -1141,7 +1141,7 @@ associated with the same C lmdb database, which declutters the code:
 ```
 
 
-<a id='x-28LMDB-3AENCODING-20-28TYPE-29-29'></a>
+<a id='x-28LMDB-3AENCODING-20TYPE-29'></a>
 
 - [type] **ENCODING**
 
@@ -1159,8 +1159,8 @@ associated with the same C lmdb database, which declutters the code:
       code more efficiently, but declaring the element type is not
       required. For example, `VECTOR`s can be used as long as the actual
       elements are of type `(UNSIGNED-BYTE 8)`. Foreign byte arrays to
-      be decoded (e.g. the value returned by [`G3T`][7258]) are returned as
-      [`OCTETS`][7274].
+      be decoded (e.g. the value returned by `G3T`) are returned as
+      [`OCTETS`][5df6].
     
     - `:UTF-8:` Data to be encoded must be a string, which is converted to
       octets by `TRIVIAL-UTF-8`. Null-terminated. Foreign byte arrays are
@@ -1175,7 +1175,7 @@ associated with the same C lmdb database, which declutters the code:
       equivalent to `(CONS #'UINT64-TO-OCTETS #'MDB-VAL-TO-UINT64)`.
 
 
-<a id='x-28LMDB-3AWITH-MDB-VAL-SLOTS-20-28MGL-PAX-3AMACRO-29-29'></a>
+<a id='x-28LMDB-3AWITH-MDB-VAL-SLOTS-20MGL-PAX-3AMACRO-29'></a>
 
 - [macro] **WITH-MDB-VAL-SLOTS** *(%BYTES SIZE MDB-VAL) &BODY BODY*
 
@@ -1183,11 +1183,11 @@ associated with the same C lmdb database, which declutters the code:
     `MDB-VAL` is an opaque handle for a foreign `MDB_val` struct, that
     holds the pointer to a byte array and the number of bytes in the
     array. This macro is needed to access the foreign data in a function
-    used as [`*KEY-DECODER*`][21b9] or [`*VALUE-DECODER*`][05cd]. `MDB-VAL` is dynamic extent,
+    used as [`*KEY-DECODER*`][5fe9] or [`*VALUE-DECODER*`][7d2c]. `MDB-VAL` is dynamic extent,
     so don't hold on to it. Also, the pointer to which `%BYTES` is bound
     is valid only within the context of current top-level transaction.
 
-<a id='x-28LMDB-3AOCTETS-20-28TYPE-29-29'></a>
+<a id='x-28LMDB-3AOCTETS-20TYPE-29'></a>
 
 - [type] **OCTETS** *&OPTIONAL (SIZE '\*)*
 
@@ -1197,31 +1197,31 @@ associated with the same C lmdb database, which declutters the code:
 
 - [function] **MDB-VAL-TO-OCTETS** *MDB-VAL*
 
-    A utility function provided for writing [`*KEY-DECODER*`][21b9] and
-    [`*VALUE-DECODER*`][05cd] functions. It returns a Lisp octet vector that holds
+    A utility function provided for writing [`*KEY-DECODER*`][5fe9] and
+    [`*VALUE-DECODER*`][7d2c] functions. It returns a Lisp octet vector that holds
     the same bytes as `MDB-VAL`.
 
 <a id='x-28LMDB-3AUINT64-TO-OCTETS-20FUNCTION-29'></a>
 
 - [function] **UINT64-TO-OCTETS** *N*
 
-    Convert an `(UNSIGNED-BYTE 64)` to [`OCTETS`][7274] of length 8 taking the
-    native byte order representation of `N`. Suitable as a [`*KEY-ENCODER*`][803c]
-    or [`*VALUE-ENCODER*`][cfd2].
+    Convert an `(UNSIGNED-BYTE 64)` to [`OCTETS`][5df6] of length 8 taking the
+    native byte order representation of `N`. Suitable as a [`*KEY-ENCODER*`][7bf5]
+    or [`*VALUE-ENCODER*`][b173].
 
 <a id='x-28LMDB-3AOCTETS-TO-UINT64-20FUNCTION-29'></a>
 
 - [function] **OCTETS-TO-UINT64** *OCTETS*
 
     The inverse of [`UINT64-TO-OCTETS`][6d42]. Use [`MDB-VAL-TO-UINT64`][0a26] as a
-    [`*KEY-DECODER*`][21b9] or [`*VALUE-DECODER*`][05cd].
+    [`*KEY-DECODER*`][5fe9] or [`*VALUE-DECODER*`][7d2c].
 
 <a id='x-28LMDB-3AMDB-VAL-TO-UINT64-20FUNCTION-29'></a>
 
 - [function] **MDB-VAL-TO-UINT64** *MDB-VAL*
 
-    Like [`OCTETS-TO-UINT64`][ff7b], but suitable for [`*KEY-DECODER*`][21b9] or
-    [`*VALUE-DECODER*`][05cd] that decodes unsigned 64 bit integers in native byte
+    Like [`OCTETS-TO-UINT64`][ff7b], but suitable for [`*KEY-DECODER*`][5fe9] or
+    [`*VALUE-DECODER*`][7d2c] that decodes unsigned 64 bit integers in native byte
     order. This function is called automatically when the encoding is
     known to require it (see [`GET-DB`][a8aa]'s `INTEGER-KEY`, `:VALUE-ENCODING`,
     etc).
@@ -1230,22 +1230,22 @@ associated with the same C lmdb database, which declutters the code:
 
 - [function] **STRING-TO-OCTETS** *STRING*
 
-    Convert `STRING` to [`OCTETS`][7274] by encoding it as UTF-8 with null
-    termination. Suitable as a [`*KEY-ENCODER*`][803c] or [`*VALUE-ENCODER*`][cfd2].
+    Convert `STRING` to [`OCTETS`][5df6] by encoding it as UTF-8 with null
+    termination. Suitable as a [`*KEY-ENCODER*`][7bf5] or [`*VALUE-ENCODER*`][b173].
 
 <a id='x-28LMDB-3AOCTETS-TO-STRING-20FUNCTION-29'></a>
 
 - [function] **OCTETS-TO-STRING** *OCTETS*
 
     The inverse of [`STRING-TO-OCTETS`][b2b9]. Use [`MDB-VAL-TO-STRING`][b8b6] as a
-    [`*KEY-DECODER*`][21b9] or [`*VALUE-DECODER*`][05cd].
+    [`*KEY-DECODER*`][5fe9] or [`*VALUE-DECODER*`][7d2c].
 
 <a id='x-28LMDB-3AMDB-VAL-TO-STRING-20FUNCTION-29'></a>
 
 - [function] **MDB-VAL-TO-STRING** *MDB-VAL*
 
-    Like [`OCTETS-TO-STRING`][87b3], but suitable as a [`*KEY-DECODER*`][21b9] or
-    [`*VALUE-DECODER*`][05cd].
+    Like [`OCTETS-TO-STRING`][87b3], but suitable as a [`*KEY-DECODER*`][5fe9] or
+    [`*VALUE-DECODER*`][7d2c].
 
 <a id='x-28LMDB-3A-40OVERRIDING-ENCODINGS-20MGL-PAX-3ASECTION-29'></a>
 
@@ -1256,21 +1256,21 @@ recommended practice (see the example in [Encoding and decoding data][3489]), bu
 is inconvenient, one can override the encodings with the following
 variables.
 
-<a id='x-28LMDB-3A-2AKEY-ENCODER-2A-20-28VARIABLE-29-29'></a>
+<a id='x-28LMDB-3A-2AKEY-ENCODER-2A-20VARIABLE-29'></a>
 
 - [variable] **\*KEY-ENCODER\*** *NIL*
 
-    A function designator, `NIL` or an [`ENCODING`][b093]. If non-NIL, it overrides
+    A function designator, `NIL` or an [`ENCODING`][c5ec]. If non-NIL, it overrides
     the encoding method determined by `KEY-ENCODING` (see [`GET-DB`][a8aa]). It is
     called with a single argument, the key, when it is to be converted
     to an octet vector.
 
-<a id='x-28LMDB-3A-2AKEY-DECODER-2A-20-28VARIABLE-29-29'></a>
+<a id='x-28LMDB-3A-2AKEY-DECODER-2A-20VARIABLE-29'></a>
 
 - [variable] **\*KEY-DECODER\*** *NIL*
 
-    A function designator, `NIL` or an [`ENCODING`][b093]. If non-NIL, it is
-    called with a single `MDB-VAL` argument (see [`WITH-MDB-VAL-SLOTS`][563b]), that
+    A function designator, `NIL` or an [`ENCODING`][c5ec]. If non-NIL, it is
+    called with a single `MDB-VAL` argument (see [`WITH-MDB-VAL-SLOTS`][2fdd]), that
     holds a pointer to data to be decoded and its size. This function is
     called whenever a key is to be decoded and overrides the
     `KEY-ENCODING` argument of [`GET-DB`][a8aa].
@@ -1295,17 +1295,17 @@ variables.
     ```
 
 
-<a id='x-28LMDB-3A-2AVALUE-ENCODER-2A-20-28VARIABLE-29-29'></a>
+<a id='x-28LMDB-3A-2AVALUE-ENCODER-2A-20VARIABLE-29'></a>
 
 - [variable] **\*VALUE-ENCODER\*** *NIL*
 
-    Like [`*KEY-ENCODER*`][803c], but for values.
+    Like [`*KEY-ENCODER*`][7bf5], but for values.
 
-<a id='x-28LMDB-3A-2AVALUE-DECODER-2A-20-28VARIABLE-29-29'></a>
+<a id='x-28LMDB-3A-2AVALUE-DECODER-2A-20VARIABLE-29'></a>
 
 - [variable] **\*VALUE-DECODER\*** *NIL*
 
-    Like [`*KEY-DECODER*`][21b9], but for values.
+    Like [`*KEY-DECODER*`][5fe9], but for values.
     
     Apart from performing actual decoding, the main purpose of
     `*VALUE-DECODER*`, one can also pass the foreign data on to other
@@ -1325,13 +1325,13 @@ variables.
     supports [DUPSORT][6f4e], then the first value for `KEY` will be returned.
     Retrieval of other values requires the use of [Cursors][d610].
     
-    This function is called [`G3T`][7258] instead of `GET` to avoid having to shadow
+    This function is called `G3T` instead of `GET` to avoid having to shadow
     `CL:GET` when importing the [`LMDB`][1e9b] package. On the other hand, importing
     the `LMDB+` package, which has `LMDB::GET` exported, requires some
     shadowing.
     
-    The `LMDB+` package is like the [`LMDB`][1e9b] package, but it has `#'LMDB:G3T`
-    fbound to [`LMDB+:G3T`][7258] so it probably needs shadowing to avoid conflict
+    The `LMDB+` package is like the `LMDB` package, but it has `#'LMDB:G3T`
+    fbound to `LMDB+:G3T` so it probably needs shadowing to avoid conflict
     with `CL:GET:`
     
     ```
@@ -1352,7 +1352,7 @@ variables.
     - `OVERWRITE`: If `NIL`, signal [`LMDB-KEY-EXISTS-ERROR`][f4de] if `KEY` already
       appears in `DB`.
     
-    - `DUPDATA`: If `NIL`, signal [`LMDB-KEY-EXISTS-ERROR`][f4de] if the `KEY`, `VALUE`
+    - `DUPDATA`: If `NIL`, signal `LMDB-KEY-EXISTS-ERROR` if the `KEY`, `VALUE`
       pair already appears in `DB`. Has no effect if `DB` doesn't have
       `DUPSORT`.
     
@@ -1360,14 +1360,14 @@ variables.
       finding `KEY`'s location in the B+ tree by performing comparisons.
       The client effectively promises that keys are inserted in sort
       order, which allows for fast bulk loading. If the promise is
-      broken, a [`LMDB-KEY-EXISTS-ERROR`][f4de] is signalled.
+      broken, a `LMDB-KEY-EXISTS-ERROR` is signalled.
     
     - `APPEND-DUP`: The client promises that duplicate values are inserted
-      in sort order. If the promise is broken, a [`LMDB-KEY-EXISTS-ERROR`][f4de]
+      in sort order. If the promise is broken, a `LMDB-KEY-EXISTS-ERROR`
       is signalled.
     
     - If `KEY-EXISTS-ERROR-P` is `NIL`, then instead of signalling
-      [`LMDB-KEY-EXISTS-ERROR`][f4de] return `NIL`.
+      `LMDB-KEY-EXISTS-ERROR` return `NIL`.
     
     May signal [`LMDB-MAP-FULL-ERROR`][a68b], [`LMDB-TXN-FULL-ERROR`][1233],
     [`LMDB-TXN-READ-ONLY-ERROR`][5ab9].
@@ -1390,7 +1390,7 @@ variables.
 
 ## 11 Cursors
 
-<a id='x-28LMDB-3AWITH-CURSOR-20-28MGL-PAX-3AMACRO-29-29'></a>
+<a id='x-28LMDB-3AWITH-CURSOR-20MGL-PAX-3AMACRO-29'></a>
 
 - [macro] **WITH-CURSOR** *(VAR DB) &BODY BODY*
 
@@ -1404,18 +1404,18 @@ variables.
     Wraps [mdb\_cursor\_open()](http://www.lmdb.tech/doc/group__mdb.html#ga9ff5d7bd42557fd5ee235dc1d62613aa)
     and [mdb\_cursor\_close()](http://www.lmdb.tech/doc/group__mdb.html#gad685f5d73c052715c7bd859cc4c05188).
 
-<a id='x-28LMDB-3AWITH-IMPLICIT-CURSOR-20-28MGL-PAX-3AMACRO-29-29'></a>
+<a id='x-28LMDB-3AWITH-IMPLICIT-CURSOR-20MGL-PAX-3AMACRO-29'></a>
 
 - [macro] **WITH-IMPLICIT-CURSOR** *(DB) &BODY BODY*
 
-    Like [`WITH-CURSOR`][7bb1] but the cursor object is not accessible directly,
+    Like [`WITH-CURSOR`][e716] but the cursor object is not accessible directly,
     only through the [default cursor][9298] mechanism. The cursor is
-    stack-allocated, which eliminates the consing of [`WITH-CURSOR`][7bb1]. Note
-    that stack allocation of cursors in [`WITH-CURSOR`][7bb1] would risk data
+    stack-allocated, which eliminates the consing of `WITH-CURSOR`. Note
+    that stack allocation of cursors in `WITH-CURSOR` would risk data
     corruption if the cursor were accessed beyond its dynamic extent.
     
-    Use [`WITH-IMPLICIT-CURSOR`][1604] instead of [`WITH-CURSOR`][7bb1] if a single cursor
-    at a time will suffice. Conversely, use [`WITH-CURSOR`][7bb1] if a second
+    Use `WITH-IMPLICIT-CURSOR` instead of `WITH-CURSOR` if a single cursor
+    at a time will suffice. Conversely, use `WITH-CURSOR` if a second
     cursor is needed. That is, use
     
     ```
@@ -1424,7 +1424,7 @@ variables.
     ```
     
     but when two cursors iterate in an interleaved manner, use
-    [`WITH-CURSOR`][7bb1]:
+    `WITH-CURSOR`:
     
     ```
     (with-cursor (c1 db)
@@ -1454,7 +1454,7 @@ variables.
 
     All operations, described below, that take cursor arguments accept
     `NIL` instead of a [`CURSOR`][ecad] object, in which case the cursor from the
-    immediately enclosing [`WITH-CURSOR`][7bb1] or [`WITH-IMPLICIT-CURSOR`][1604] is used.
+    immediately enclosing [`WITH-CURSOR`][e716] or [`WITH-IMPLICIT-CURSOR`][3106] is used.
     This cursor is referred to as the *default cursor*.
     
     To reduce syntactic clutter, some operations thus make cursor
@@ -1637,7 +1637,7 @@ last return value being `T`.
 ### 11.2 Basic cursor operations
 
 The following operations are similar to [`G3T`][7258], [`PUT`][e21e], [`DEL`][1852] (the
-[Basic operations][b471]), but [`G3T`][7258] has three variants ([`CURSOR-KEY-VALUE`][1283],
+[Basic operations][b471]), but `G3T` has three variants ([`CURSOR-KEY-VALUE`][1283],
 [`CURSOR-KEY`][6b56], and [`CURSOR-VALUE`][1175]). All of them require the cursor to be
 positioned (see [Positioning cursors][ed71]).
 
@@ -1689,18 +1689,18 @@ positioned (see [Positioning cursors][ed71]).
     - `OVERWRITE`: If `NIL`, signal [`LMDB-KEY-EXISTS-ERROR`][f4de] if `KEY` already
       appears in [`CURSOR-DB`][b2ae].
     
-    - `DUPDATA`: If `NIL`, signal [`LMDB-KEY-EXISTS-ERROR`][f4de] if the `KEY`, `VALUE`
-      pair already appears in [`DB`][8400]. Has no effect if [`CURSOR-DB`][b2ae] doesn't
+    - `DUPDATA`: If `NIL`, signal `LMDB-KEY-EXISTS-ERROR` if the `KEY`, `VALUE`
+      pair already appears in [`DB`][8400]. Has no effect if `CURSOR-DB` doesn't
       have [DUPSORT][6f4e].
     
-    - `APPEND`: Append the `KEY`, `VALUE` pair to the end of [`CURSOR-DB`][b2ae] instead
+    - `APPEND`: Append the `KEY`, `VALUE` pair to the end of `CURSOR-DB` instead
       of finding `KEY`'s location in the B+ tree by performing
       comparisons. The client effectively promises that keys are
       inserted in sort order, which allows for fast bulk loading. If the
-      promise is broken, [`LMDB-KEY-EXISTS-ERROR`][f4de] is signalled.
+      promise is broken, `LMDB-KEY-EXISTS-ERROR` is signalled.
     
     - `APPEND-DUP`: The client promises that duplicate values are inserted
-      in sort order. If the promise is broken, [`LMDB-KEY-EXISTS-ERROR`][f4de] is
+      in sort order. If the promise is broken, `LMDB-KEY-EXISTS-ERROR` is
       signalled.
     
     May signal [`LMDB-MAP-FULL-ERROR`][a68b], [`LMDB-TXN-FULL-ERROR`][1233],
@@ -1714,7 +1714,7 @@ positioned (see [Positioning cursors][ed71]).
 
     Delete the key-value pair `CURSOR` is positioned at. This does not
     make the cursor uninitialized, so operations such as [`CURSOR-NEXT`][5ba5] can
-    still be used on it. Both [`CURSOR-NEXT`][5ba5] and [`CURSOR-KEY-VALUE`][1283] will
+    still be used on it. Both `CURSOR-NEXT` and [`CURSOR-KEY-VALUE`][1283] will
     return the same record after this operation. If `CURSOR` is not
     initialized, [`LMDB-CURSOR-UNINITIALIZED-ERROR`][8aed] is signalled. Returns
     no values.
@@ -1723,7 +1723,7 @@ positioned (see [Positioning cursors][ed71]).
     current key. With `DELETE-DUPS`, [`CURSOR-DB`][b2ae] must have [DUPSORT][6f4e], else
     [`LMDB-INCOMPATIBLE-ERROR`][5a39] is signalled.
     
-    May signal [`LMDB-CURSOR-UNINITIALIZED-ERROR`][8aed],
+    May signal `LMDB-CURSOR-UNINITIALIZED-ERROR`,
     [`LMDB-TXN-READ-ONLY-ERROR`][5ab9].
     
     Wraps [mdb\_cursor\_del()](http://www.lmdb.tech/doc/group__mdb.html#ga26a52d3efcfd72e5bf6bd6960bf75f95).
@@ -1755,7 +1755,7 @@ positioned (see [Positioning cursors][ed71]).
     
     Wraps [mdb\_cursor\_count()](http://www.lmdb.tech/doc/group__mdb.html#ga4041fd1e1862c6b7d5f10590b86ffbe2).
 
-<a id='x-28LMDB-3ADO-CURSOR-20-28MGL-PAX-3AMACRO-29-29'></a>
+<a id='x-28LMDB-3ADO-CURSOR-20MGL-PAX-3AMACRO-29'></a>
 
 - [macro] **DO-CURSOR** *(KEY-VAR VALUE-VAR CURSOR &KEY FROM-END NODUP) &BODY BODY*
 
@@ -1780,7 +1780,7 @@ positioned (see [Positioning cursors][ed71]).
     ```
 
 
-<a id='x-28LMDB-3ADO-CURSOR-DUP-20-28MGL-PAX-3AMACRO-29-29'></a>
+<a id='x-28LMDB-3ADO-CURSOR-DUP-20MGL-PAX-3AMACRO-29'></a>
 
 - [macro] **DO-CURSOR-DUP** *(VALUE-VAR CURSOR &KEY FROM-END) &BODY BODY*
 
@@ -1802,7 +1802,7 @@ positioned (see [Positioning cursors][ed71]).
     ```
 
 
-<a id='x-28LMDB-3ADO-DB-20-28MGL-PAX-3AMACRO-29-29'></a>
+<a id='x-28LMDB-3ADO-DB-20MGL-PAX-3AMACRO-29'></a>
 
 - [macro] **DO-DB** *(KEY-VAR VALUE-VAR DB &KEY FROM-END NODUP) &BODY BODY*
 
@@ -1819,7 +1819,7 @@ positioned (see [Positioning cursors][ed71]).
     
     This macro establishes a [default cursor][9298].
 
-<a id='x-28LMDB-3ADO-DB-DUP-20-28MGL-PAX-3AMACRO-29-29'></a>
+<a id='x-28LMDB-3ADO-DB-DUP-20MGL-PAX-3AMACRO-29'></a>
 
 - [macro] **DO-DB-DUP** *(VALUE-VAR DB KEY &KEY FROM-END) &BODY BODY*
 
@@ -1839,7 +1839,7 @@ positioned (see [Positioning cursors][ed71]).
 
 - [function] **LIST-DUPS** *DB KEY &KEY FROM-END*
 
-    A thin wrapper around [`DO-DB-DUP`][6ce8], this function returns all values
+    A thin wrapper around [`DO-DB-DUP`][b67f], this function returns all values
     associated with `KEY` in `DB` as a list. If `FROM-END`, then the first
     element of the list is the largest value.
 
@@ -1969,12 +1969,12 @@ codes](http://www.lmdb.tech/doc/group__errors.html).
 
 - [condition] **LMDB-INCOMPATIBLE-ERROR** *LMDB-ERROR*
 
-    Operation and [`DB`][8400] incompatible, or [`DB`][8400] type changed.
+    Operation and [`DB`][8400] incompatible, or `DB` type changed.
     This can mean:
     
     - The operation expects a [DUPSORT][6f4e] or `DUPFIXED` database.
     
-    - Opening a named [`DB`][8400] when the unnamed [`DB`][8400] has `DUPSORT` or `INTEGER-KEY`.
+    - Opening a named `DB` when the unnamed `DB` has `DUPSORT` or `INTEGER-KEY`.
     
     - Accessing a data record as a database, or vice versa.
     
@@ -1986,7 +1986,7 @@ codes](http://www.lmdb.tech/doc/group__errors.html).
 - [condition] **LMDB-BAD-RSLOT-ERROR** *LMDB-ERROR*
 
     Invalid reuse of reader locktable slot. May be
-    signalled by [`WITH-TXN`][a030].
+    signalled by [`WITH-TXN`][5f15].
 
 <a id='x-28LMDB-3ALMDB-BAD-TXN-ERROR-20CONDITION-29'></a>
 
@@ -2032,7 +2032,7 @@ code.
 
     Cursor was accessed from a thread other than the
     one in which it was created. Since the foreign cursor object's
-    lifetime is tied to the dynamic extent of its [`WITH-CURSOR`][7bb1], this
+    lifetime is tied to the dynamic extent of its [`WITH-CURSOR`][e716], this
     might mean accessing garbage in foreign memory with unpredictable
     consequences.
 
@@ -2069,7 +2069,6 @@ code.
   [00ec]: #x-28LMDB-3A-40LMDB-INTRODUCTION-20MGL-PAX-3ASECTION-29 "Introduction"
   [0147]: #x-28LMDB-3ACOMMIT-TXN-20FUNCTION-29 "(LMDB:COMMIT-TXN FUNCTION)"
   [01d2]: #x-28LMDB-3AENV-MAP-SIZE-20-28MGL-PAX-3AREADER-20LMDB-3AENV-29-29 "(LMDB:ENV-MAP-SIZE (MGL-PAX:READER LMDB:ENV))"
-  [05cd]: #x-28LMDB-3A-2AVALUE-DECODER-2A-20-28VARIABLE-29-29 "(LMDB:*VALUE-DECODER* (VARIABLE))"
   [084c]: #x-28LMDB-3ACURSOR-NEXT-DUP-20FUNCTION-29 "(LMDB:CURSOR-NEXT-DUP FUNCTION)"
   [097c]: #x-28LMDB-3A-40CONDITIONS-20MGL-PAX-3ASECTION-29 "Conditions"
   [0a26]: #x-28LMDB-3AMDB-VAL-TO-UINT64-20FUNCTION-29 "(LMDB:MDB-VAL-TO-UINT64 FUNCTION)"
@@ -2077,17 +2076,17 @@ code.
   [1175]: #x-28LMDB-3ACURSOR-VALUE-20FUNCTION-29 "(LMDB:CURSOR-VALUE FUNCTION)"
   [1233]: #x-28LMDB-3ALMDB-TXN-FULL-ERROR-20CONDITION-29 "(LMDB:LMDB-TXN-FULL-ERROR CONDITION)"
   [1283]: #x-28LMDB-3ACURSOR-KEY-VALUE-20FUNCTION-29 "(LMDB:CURSOR-KEY-VALUE FUNCTION)"
-  [1604]: #x-28LMDB-3AWITH-IMPLICIT-CURSOR-20-28MGL-PAX-3AMACRO-29-29 "(LMDB:WITH-IMPLICIT-CURSOR (MGL-PAX:MACRO))"
   [175f]: #x-28LMDB-3A-40MISC-CURSOR-20MGL-PAX-3ASECTION-29 "Miscellaneous cursor operations"
   [1852]: #x-28LMDB-3ADEL-20FUNCTION-29 "(LMDB:DEL FUNCTION)"
   [1ca8]: #x-28LMDB-3ACURSOR-FIRST-20FUNCTION-29 "(LMDB:CURSOR-FIRST FUNCTION)"
   [1e9b]: #x-28-23A-28-284-29-20BASE-CHAR-20-2E-20-22lmdb-22-29-20ASDF-2FSYSTEM-3ASYSTEM-29 "(#A((4) BASE-CHAR . \"lmdb\") ASDF/SYSTEM:SYSTEM)"
   [1fa4]: #x-28LMDB-3A-40NESTING-TRANSACTIONS-20MGL-PAX-3ASECTION-29 "Nesting transactions"
-  [21b9]: #x-28LMDB-3A-2AKEY-DECODER-2A-20-28VARIABLE-29-29 "(LMDB:*KEY-DECODER* (VARIABLE))"
   [258b]: #x-28LMDB-3A-40DATABASES-20MGL-PAX-3ASECTION-29 "Databases"
   [2a7d]: #x-28LMDB-3ALMDB-ILLEGAL-ACCESS-TO-PARENT-TXN-ERROR-20CONDITION-29 "(LMDB:LMDB-ILLEGAL-ACCESS-TO-PARENT-TXN-ERROR CONDITION)"
+  [2fdd]: #x-28LMDB-3AWITH-MDB-VAL-SLOTS-20MGL-PAX-3AMACRO-29 "(LMDB:WITH-MDB-VAL-SLOTS MGL-PAX:MACRO)"
   [2fff]: #x-28LMDB-3A-40DATABASE-API-20MGL-PAX-3ASECTION-29 "Database API"
   [30a6]: #x-28LMDB-3AENV-MAX-DBS-20-28MGL-PAX-3AREADER-20LMDB-3AENV-29-29 "(LMDB:ENV-MAX-DBS (MGL-PAX:READER LMDB:ENV))"
+  [3106]: #x-28LMDB-3AWITH-IMPLICIT-CURSOR-20MGL-PAX-3AMACRO-29 "(LMDB:WITH-IMPLICIT-CURSOR MGL-PAX:MACRO)"
   [3489]: #x-28LMDB-3A-40ENCODINGS-20MGL-PAX-3ASECTION-29 "Encoding and decoding data"
   [353b]: #x-28LMDB-3ACURSOR-SET-KEY-20FUNCTION-29 "(LMDB:CURSOR-SET-KEY FUNCTION)"
   [37f9]: #x-28LMDB-3ALMDB-CURSOR-THREAD-ERROR-20CONDITION-29 "(LMDB:LMDB-CURSOR-THREAD-ERROR CONDITION)"
@@ -2097,31 +2096,30 @@ code.
   [4607]: #x-28LMDB-3ALMDB-FOREIGN-VERSION-20FUNCTION-29 "(LMDB:LMDB-FOREIGN-VERSION FUNCTION)"
   [4746]: #x-28LMDB-3A-40LMDB-LINKS-20MGL-PAX-3ASECTION-29 "Links"
   [4850]: #x-28LMDB-3A-40ADDITIONAL-CONDITIONS-20MGL-PAX-3ASECTION-29 "Additional conditions"
+  [4c68]: #x-28LMDB-3A-2ADB-CLASS-2A-20VARIABLE-29 "(LMDB:*DB-CLASS* VARIABLE)"
   [5165]: #x-28LMDB-3A-40THE-UNNAMED-DATABASE-20MGL-PAX-3ASECTION-29 "The unnamed database"
   [52b7]: #x-28LMDB-3AENV-MAX-READERS-20-28MGL-PAX-3AREADER-20LMDB-3AENV-29-29 "(LMDB:ENV-MAX-READERS (MGL-PAX:READER LMDB:ENV))"
   [5349]: #x-28LMDB-3ALMDB-BAD-RSLOT-ERROR-20CONDITION-29 "(LMDB:LMDB-BAD-RSLOT-ERROR CONDITION)"
-  [5388]: #x-28LMDB-3AWITH-TEMPORARY-ENV-20-28MGL-PAX-3AMACRO-29-29 "(LMDB:WITH-TEMPORARY-ENV (MGL-PAX:MACRO))"
-  [563b]: #x-28LMDB-3AWITH-MDB-VAL-SLOTS-20-28MGL-PAX-3AMACRO-29-29 "(LMDB:WITH-MDB-VAL-SLOTS (MGL-PAX:MACRO))"
   [5a39]: #x-28LMDB-3ALMDB-INCOMPATIBLE-ERROR-20CONDITION-29 "(LMDB:LMDB-INCOMPATIBLE-ERROR CONDITION)"
   [5ab9]: #x-28LMDB-3ALMDB-TXN-READ-ONLY-ERROR-20CONDITION-29 "(LMDB:LMDB-TXN-READ-ONLY-ERROR CONDITION)"
   [5ba5]: #x-28LMDB-3ACURSOR-NEXT-20FUNCTION-29 "(LMDB:CURSOR-NEXT FUNCTION)"
-  [5dfb]: #x-28LMDB-3AWITH-ENV-20-28MGL-PAX-3AMACRO-29-29 "(LMDB:WITH-ENV (MGL-PAX:MACRO))"
+  [5df6]: #x-28LMDB-3AOCTETS-20TYPE-29 "(LMDB:OCTETS TYPE)"
+  [5f15]: #x-28LMDB-3AWITH-TXN-20MGL-PAX-3AMACRO-29 "(LMDB:WITH-TXN MGL-PAX:MACRO)"
+  [5fe9]: #x-28LMDB-3A-2AKEY-DECODER-2A-20VARIABLE-29 "(LMDB:*KEY-DECODER* VARIABLE)"
   [6474]: #x-28LMDB-3ACURSOR-PREV-20FUNCTION-29 "(LMDB:CURSOR-PREV FUNCTION)"
   [64b5]: #x-28LMDB-3ASYNC-ENV-20FUNCTION-29 "(LMDB:SYNC-ENV FUNCTION)"
   [67a2]: #x-28LMDB-3A-40DESIGN-AND-IMPLEMENTATION-20MGL-PAX-3ASECTION-29 "Design and implementation"
   [6b56]: #x-28LMDB-3ACURSOR-KEY-20FUNCTION-29 "(LMDB:CURSOR-KEY FUNCTION)"
   [6c6e]: #x-28LMDB-3A-40MISC-ENV-20MGL-PAX-3ASECTION-29 "Miscellaneous environment functions"
-  [6ce8]: #x-28LMDB-3ADO-DB-DUP-20-28MGL-PAX-3AMACRO-29-29 "(LMDB:DO-DB-DUP (MGL-PAX:MACRO))"
   [6d42]: #x-28LMDB-3AUINT64-TO-OCTETS-20FUNCTION-29 "(LMDB:UINT64-TO-OCTETS FUNCTION)"
   [6f1e]: #x-28LMDB-3ALMDB-BAD-VALSIZE-ERROR-20CONDITION-29 "(LMDB:LMDB-BAD-VALSIZE-ERROR CONDITION)"
   [6f4e]: #x-28LMDB-3A-40DUPSORT-20MGL-PAX-3ASECTION-29 "DUPSORT"
   [7258]: #x-28LMDB-3AG3T-20FUNCTION-29 "(LMDB:G3T FUNCTION)"
-  [7274]: #x-28LMDB-3AOCTETS-20-28TYPE-29-29 "(LMDB:OCTETS (TYPE))"
   [7351]: #x-28LMDB-3ALMDB-ERROR-20CONDITION-29 "(LMDB:LMDB-ERROR CONDITION)"
   [7652]: #x-28LMDB-3A-40TRANSACTIONS-20MGL-PAX-3ASECTION-29 "Transactions"
   [783a]: #x-28LMDB-3AENV-20CLASS-29 "(LMDB:ENV CLASS)"
-  [7bb1]: #x-28LMDB-3AWITH-CURSOR-20-28MGL-PAX-3AMACRO-29-29 "(LMDB:WITH-CURSOR (MGL-PAX:MACRO))"
-  [803c]: #x-28LMDB-3A-2AKEY-ENCODER-2A-20-28VARIABLE-29-29 "(LMDB:*KEY-ENCODER* (VARIABLE))"
+  [7bf5]: #x-28LMDB-3A-2AKEY-ENCODER-2A-20VARIABLE-29 "(LMDB:*KEY-ENCODER* VARIABLE)"
+  [7d2c]: #x-28LMDB-3A-2AVALUE-DECODER-2A-20VARIABLE-29 "(LMDB:*VALUE-DECODER* VARIABLE)"
   [822f]: #x-28LMDB-3ADROP-DB-20FUNCTION-29 "(LMDB:DROP-DB FUNCTION)"
   [8400]: #x-28LMDB-3ADB-20CLASS-29 "(LMDB:DB CLASS)"
   [85dd]: #x-28LMDB-3ALMDB-BAD-TXN-ERROR-20CONDITION-29 "(LMDB:LMDB-BAD-TXN-ERROR CONDITION)"
@@ -2131,29 +2129,30 @@ code.
   [9298]: #x-28LMDB-3A-40DEFAULT-CURSOR-20MGL-PAX-3AGLOSSARY-TERM-29 "(LMDB:@DEFAULT-CURSOR MGL-PAX:GLOSSARY-TERM)"
   [944d]: #x-28LMDB-3ACURSOR-PREV-DUP-20FUNCTION-29 "(LMDB:CURSOR-PREV-DUP FUNCTION)"
   [97d7]: #x-28LMDB-3ACLOSE-ENV-20FUNCTION-29 "(LMDB:CLOSE-ENV FUNCTION)"
-  [a030]: #x-28LMDB-3AWITH-TXN-20-28MGL-PAX-3AMACRO-29-29 "(LMDB:WITH-TXN (MGL-PAX:MACRO))"
   [a492]: #x-28LMDB-3ACURSOR-NEXT-NODUP-20FUNCTION-29 "(LMDB:CURSOR-NEXT-NODUP FUNCTION)"
   [a68b]: #x-28LMDB-3ALMDB-MAP-FULL-ERROR-20CONDITION-29 "(LMDB:LMDB-MAP-FULL-ERROR CONDITION)"
   [a8aa]: #x-28LMDB-3AGET-DB-20FUNCTION-29 "(LMDB:GET-DB FUNCTION)"
   [a9f7]: #x-28LMDB-3A-40SAFETY-20MGL-PAX-3ASECTION-29 "Safety"
   [ac4c]: #x-28LMDB-3A-40VERSION-20MGL-PAX-3ASECTION-29 "Library versions"
+  [ac84]: #x-28LMDB-3AWITH-ENV-20MGL-PAX-3AMACRO-29 "(LMDB:WITH-ENV MGL-PAX:MACRO)"
   [b084]: #x-28LMDB-3AOPEN-ENV-20FUNCTION-29 "(LMDB:OPEN-ENV FUNCTION)"
-  [b093]: #x-28LMDB-3AENCODING-20-28TYPE-29-29 "(LMDB:ENCODING (TYPE))"
+  [b173]: #x-28LMDB-3A-2AVALUE-ENCODER-2A-20VARIABLE-29 "(LMDB:*VALUE-ENCODER* VARIABLE)"
   [b2ae]: #x-28LMDB-3ACURSOR-DB-20FUNCTION-29 "(LMDB:CURSOR-DB FUNCTION)"
   [b2b9]: #x-28LMDB-3ASTRING-TO-OCTETS-20FUNCTION-29 "(LMDB:STRING-TO-OCTETS FUNCTION)"
   [b471]: #x-28LMDB-3A-40BASIC-OPERATIONS-20MGL-PAX-3ASECTION-29 "Basic operations"
+  [b67f]: #x-28LMDB-3ADO-DB-DUP-20MGL-PAX-3AMACRO-29 "(LMDB:DO-DB-DUP MGL-PAX:MACRO)"
   [b8b6]: #x-28LMDB-3AMDB-VAL-TO-STRING-20FUNCTION-29 "(LMDB:MDB-VAL-TO-STRING FUNCTION)"
-  [bdba]: #x-28LMDB-3A-2ADB-CLASS-2A-20-28VARIABLE-29-29 "(LMDB:*DB-CLASS* (VARIABLE))"
   [c260]: #x-28LMDB-3A-40LMDB-ERROR-CODE-CONDITIONS-20MGL-PAX-3ASECTION-29 "Conditions for C lmdb error codes"
+  [c5ec]: #x-28LMDB-3AENCODING-20TYPE-29 "(LMDB:ENCODING TYPE)"
   [ca56]: #x-28LMDB-3ARENEW-TXN-20FUNCTION-29 "(LMDB:RENEW-TXN FUNCTION)"
   [cb1c]: #x-28LMDB-3A-40DEVIATIONS-FROM-THE-LMDB-API-20MGL-PAX-3ASECTION-29 "Deviations from the C lmdb API"
-  [cfd2]: #x-28LMDB-3A-2AVALUE-ENCODER-2A-20-28VARIABLE-29-29 "(LMDB:*VALUE-ENCODER* (VARIABLE))"
   [d610]: #x-28LMDB-3A-40CURSORS-20MGL-PAX-3ASECTION-29 "Cursors"
   [da9c]: #x-28LMDB-3ACURSOR-PREV-NODUP-20FUNCTION-29 "(LMDB:CURSOR-PREV-NODUP FUNCTION)"
   [e12f]: #x-28LMDB-3A-40OPENING-AND-CLOSING-ENV-20MGL-PAX-3ASECTION-29 "Opening and closing environments"
   [e21e]: #x-28LMDB-3APUT-20FUNCTION-29 "(LMDB:PUT FUNCTION)"
   [e4d5]: #x-28LMDB-3A-40ENVIRONMENTS-20MGL-PAX-3ASECTION-29 "Environments"
   [e544]: #x-28LMDB-3ACURSOR-RENEW-20FUNCTION-29 "(LMDB:CURSOR-RENEW FUNCTION)"
+  [e716]: #x-28LMDB-3AWITH-CURSOR-20MGL-PAX-3AMACRO-29 "(LMDB:WITH-CURSOR MGL-PAX:MACRO)"
   [ea3b]: #x-28LMDB-3ARESET-TXN-20FUNCTION-29 "(LMDB:RESET-TXN FUNCTION)"
   [eab0]: #x-28LMDB-3AABORT-TXN-20FUNCTION-29 "(LMDB:ABORT-TXN FUNCTION)"
   [ecad]: #x-28LMDB-3ACURSOR-20CLASS-29 "(LMDB:CURSOR CLASS)"

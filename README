@@ -1,7 +1,7 @@
 # LMDB Manual
 
 ###### \[in package LMDB\]
-## lmdb ASDF System Details
+## LMDB ASDF System Details
 
 - Version: 0.1
 - Description: Bindings to LMDB, the Lightning Memory-mapped Database.
@@ -27,8 +27,8 @@ database with
 [MVCC](https://en.wikipedia.org/wiki/Multiversion_concurrency_control).
 It is a small C library ("C lmdb" from now on), around which LMDB is
 a Common Lisp wrapper. LMDB covers most of C lmdb's functionality,
-has a simplified API, much needed @SAFETY checks, and comprehensive
-documentation.
+has a simplified API, much needed @LMDB/SAFETY checks, and
+comprehensive documentation.
 
 Compared to other key-value stores, LMDB's distuingishing features
 are:
@@ -103,7 +103,7 @@ tree, and only requires a comparison function to be defined over
 keys. LMDB knows how to serialize the types `(UNSIGNED-BYTE 64)` and
 STRING (which are often used as keys so sorting must work as
 expected). Serialization of the rest of the datatypes is left to the
-client. See @ENCODINGS for more.
+client. See @LMDB/ENCODINGS for more.
 
 ## Design and implementation
 
@@ -195,7 +195,7 @@ signal handlers.
 ### Deviations from the C lmdb API
 
 The following are the most prominent deviations and omissions from
-the C lmdb API in addition to those listed in @SAFETY.
+the C lmdb API in addition to those listed in @LMDB/SAFETY.
 
 ##### Environments
 
@@ -378,7 +378,7 @@ DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
     - TLS: Setting it to NIL allows each OS thread to have multiple
       read-only transactions (see WITH-TXN's IGNORE-PARENT argument). It
       also allows and transactions not to be tied to a single thread,
-      but that's quite dangerous, see @SAFETY.
+      but that's quite dangerous, see @LMDB/SAFETY.
     
     - READ-AHEAD: Turn off readahead as in `madvise(MADV_RANDOM)`. Most
       operating systems perform read-ahead on read requests by default.
@@ -452,9 +452,10 @@ DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
 
     Close ENV and free the memory. Closing an already closed ENV has no effect.
     
-    Since accessing @TRANSACTIONS, @DATABASES and @CURSORS after closing
-    their environment would risk database curruption, CLOSE-ENV makes
-    sure that they are not in use. There are two ways this can happen:
+    Since accessing @LMDB/TRANSACTIONS, @LMDB/DATABASES and
+    @LMDB/CURSORS after closing their environment would risk database
+    curruption, CLOSE-ENV makes sure that they are not in use. There are
+    two ways this can happen:
     
     - If ENV was opened :SYNCHRONIZED (see OPEN-ENV), then CLOSE-ENV
       waits until there are no @ACTIVE-TRANSACTIONs in ENV before
@@ -465,9 +466,9 @@ DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html).
     
     - On the other hand, if SYNCHRONIZED was NIL, then - unless FORCE is
       true - calling CLOSE-ENV signals an LMDB-ERROR to avoid the
-      @SAFETY issues involved in closing the environment. Environments
-      opened with :SYNCHRONIZED NIL are only closed when they are
-      garbage collected and their finalizer is run. Still, for
+      @LMDB/SAFETY issues involved in closing the environment.
+      Environments opened with :SYNCHRONIZED NIL are only closed when
+      they are garbage collected and their finalizer is run. Still, for
       production it might be worth it to gain the last bit of
       performance.
     
@@ -638,7 +639,7 @@ committed child transactions, are discarded.
     - Likewise, META-SYNC is the per-transaction equivalent of the
       OPEN-ENV's META-SYNC.
     
-    Also see @NESTING-TRANSACTIONS.
+    Also see @LMDB/NESTING-TRANSACTIONS.
     
     Wraps [mdb\_txn\_begin()](http://www.lmdb.tech/doc/group__mdb.html#gad7ea55da06b77513609efebd44b26920).
 
@@ -770,15 +771,16 @@ WITH-TXNs nested in another WITH-TXNs into noops.
 COMMIT-TXN, ABORT-TXN, and RESET-TXN all close the
 @ACTIVE-TRANSACTION (see OPEN-TXN-P). When the active transaction is
 not open, database operations such as G3T, PUT, DEL signal
-LMDB-BAD-TXN-ERROR. Furthermore, any @CURSORS created in the context
-of the transaction will no longer be valid (but see CURSOR-RENEW).
+LMDB-BAD-TXN-ERROR. Furthermore, any @LMDB/CURSORS created in the
+context of the transaction will no longer be valid (but see
+CURSOR-RENEW).
 
 An LMDB parent transaction and its cursors must not issue operations
 other than COMMIT-TXN and ABORT-TXN while there are active child
 transactions. As the Lisp side does not expose transaction objects
-directly, performing @BASIC-OPERATIONS in the parent transaction is
-not possible, but it is possible with @CURSORS as they are tied to
-the transaction in which they were created.
+directly, performing @LMDB/BASIC-OPERATIONS in the parent
+transaction is not possible, but it is possible with @LMDB/CURSORS
+as they are tied to the transaction in which they were created.
 
 IGNORE-PARENT true overrides the default nesting semantics of
 WITH-TXN and creates a new top-level transaction, which is not a
@@ -815,9 +817,9 @@ sorted values with keys, which is enabled by the DUPSORT argument of
 GET-DB. Just as a named database is a B+ tree associated with a
 key (its name) in the B+ tree of the unnamed database, so do these
 sorted duplicates form a B+ tree under a key in a named or the
-unnamed database. Among the @BASIC-OPERATIONS, PUT and DEL are
+unnamed database. Among the @LMDB/BASIC-OPERATIONS, PUT and DEL are
 equipped to deal with duplicate values, but G3T is too limited, and
-@CURSORS are needed to make full use of DUPSORT.
+@LMDB/CURSORS are needed to make full use of DUPSORT.
 
 When using this feature the limit on the maximum key size applies to
 duplicate data, as well. See ENV-MAX-KEY-SIZE.
@@ -833,7 +835,7 @@ duplicate data, as well. See ENV-MAX-KEY-SIZE.
 - [function] GET-DB NAME &KEY (CLASS \*DB-CLASS\*) (ENV \*ENV\*) (IF-DOES-NOT-EXIST :CREATE) KEY-ENCODING VALUE-ENCODING INTEGER-KEY REVERSE-KEY DUPSORT INTEGER-DUP REVERSE-DUP DUPFIXED
 
     Open the database with NAME in the open environment ENV, and return
-    a DB object. If NAME is NIL, then the @THE-UNNAMED-DATABASE is
+    a DB object. If NAME is NIL, then the @LMDB/THE-UNNAMED-DATABASE is
     opened.
     
     If GET-DB is called with the same name multiple times, the returned
@@ -843,9 +845,9 @@ duplicate data, as well. See ENV-MAX-KEY-SIZE.
     because GET-DB starts a transaction itself to comply with C lmdb's
     requirements on
     [mdb\_dbi\_open()](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a) (see
-    @SAFETY). Since dbi handles are cached within ENV, subsequent calls
-    do not involve `mdb_dbi_open()` and are thus permissible within
-    transactions.
+    @LMDB/SAFETY). Since dbi handles are cached within ENV, subsequent
+    calls do not involve `mdb_dbi_open()` and are thus permissible
+    within transactions.
     
     CLASS designates the class which will instantiated. See *DB-CLASS*.
     
@@ -857,7 +859,7 @@ duplicate data, as well. See ENV-MAX-KEY-SIZE.
     :OCTETS or :UTF-8. KEY-ENCODING is set to :UINT64 when INTEGER-KEY
     is true. VALUE-ENCODING is set to :UINT64 when INTEGER-DUP is true.
     Note that changing the encoding does *not* reencode already existing
-    data. See @ENCODINGS for the full semantics.
+    data. See @LMDB/ENCODINGS for the full semantics.
     
     GET-DB may be called more than once with the same NAME and ENV, and
     the returned DB objects will have the same underlying C lmdb
@@ -865,7 +867,8 @@ duplicate data, as well. See ENV-MAX-KEY-SIZE.
     VALUE-ENCODING.
     
     The following flags are for database creation, they do not have any
-    effect in subsequent calls (except for the @THE-UNNAMED-DATABASE).
+    effect in subsequent calls (except for the
+    @LMDB/THE-UNNAMED-DATABASE).
     
     - INTEGER-KEY: Keys in the database are C `unsigned` or `size_t`
       integers encoded in native byte order. Keys must all be either
@@ -956,7 +959,7 @@ conflicts that could arise, for example, when the UTF-8 encoding of
 a string and the :UINT64 encoding of an integer coincide. The same
 consideration doubly applies to named databases, which share the key
 space with normal key-value pairs in the default database (see
-@THE-UNNAMED-DATABASE).
+@LMDB/THE-UNNAMED-DATABASE).
 
 Together, :UINT64 and :UTF-8 cover the common cases for keys. They
 trade off dynamic typing for easy sortability (using the default C
@@ -1088,9 +1091,9 @@ associated with the same C lmdb database, which declutters the code:
 ### Overriding encodings
 
 Using multiple DB objects with different encodings is the
-recommended practice (see the example in @ENCODINGS), but when that
-is inconvenient, one can override the encodings with the following
-variables.
+recommended practice (see the example in @LMDB/ENCODINGS), but when
+that is inconvenient, one can override the encodings with the
+following variables.
 
 - [variable] *KEY-ENCODER* NIL
 
@@ -1147,7 +1150,7 @@ variables.
     Return the value from DB associated with KEY and T as the second
     value. If KEY is not found in DB, then NIL is returned. If DB
     supports @DUPSORT, then the first value for KEY will be returned.
-    Retrieval of other values requires the use of @CURSORS.
+    Retrieval of other values requires the use of @LMDB/CURSORS.
     
     This function is called G3T instead of GET to avoid having to shadow
     CL:GET when importing the LMDB package. On the other hand, importing
@@ -1413,9 +1416,10 @@ last return value being T.
 ### Basic cursor operations
 
 The following operations are similar to G3T, PUT, DEL (the
-@BASIC-OPERATIONS), but G3T has three variants (CURSOR-KEY-VALUE,
-CURSOR-KEY, and CURSOR-VALUE). All of them require the cursor to be
-positioned (see @POSITIONING-CURSORS).
+@LMDB/BASIC-OPERATIONS), but G3T has three variants
+(CURSOR-KEY-VALUE, CURSOR-KEY, and CURSOR-VALUE). All of them
+require the cursor to be positioned (see
+@LMDB/POSITIONING-CURSORS).
 
 - [function] CURSOR-KEY-VALUE &OPTIONAL CURSOR
 
@@ -1744,9 +1748,9 @@ code.
 
     A parent transaction and its cursors may not
     issue any other operations than COMMIT-TXN and ABORT-TXN while it
-    has active child transactions. In LMDB, @BASIC-OPERATIONS are always
-    executed in the @ACTIVE-TRANSACTION, but @CURSORS can refer to the
-    parent transaction:
+    has active child transactions. In LMDB, @LMDB/BASIC-OPERATIONS are
+    always executed in the @ACTIVE-TRANSACTION, but @LMDB/CURSORS can
+    refer to the parent transaction:
     
     ```
     (with-temporary-env (*env*)

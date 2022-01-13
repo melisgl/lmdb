@@ -16,7 +16,8 @@
                 :components ((:file "package")
                              (:file "liblmdb")
                              (:file "lmdb")
-                             (:file "lmdb+"))))
+                             (:file "lmdb+")
+                             (:file "doc"))))
   :description "Bindings to LMDB, the Lightning Memory-mapped Database."
   :in-order-to ((asdf:test-op (asdf:test-op "lmdb/test"))))
 

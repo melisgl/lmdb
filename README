@@ -1,7 +1,7 @@
 # LMDB Manual
 
 ###### \[in package LMDB\]
-## LMDB ASDF System Details
+## LMDB ASDF System
 
 - Version: 0.1
 - Description: Bindings to LMDB, the Lightning Memory-mapped Database.
@@ -101,7 +101,7 @@ return a string instead of an octet vector.
 LMDB treats keys and values as opaque byte arrays to be hung on a B+
 tree, and only requires a comparison function to be defined over
 keys. LMDB knows how to serialize the types `(UNSIGNED-BYTE 64)` and
-STRING (which are often used as keys so sorting must work as
+[STRING][type] (which are often used as keys so sorting must work as
 expected). Serialization of the rest of the datatypes is left to the
 client. See @LMDB/ENCODINGS for more.
 
@@ -229,13 +229,13 @@ the C lmdb API in addition to those listed in @LMDB/SAFETY.
 
 ## Library versions
 
-- [function] LMDB-FOREIGN-VERSION 
+- [function] LMDB-FOREIGN-VERSION
 
     Return the version of the C lmdb library as a string like `0.9.26`.
     
     Wraps [mdb\_version()](http://www.lmdb.tech/doc/group__mdb.html#ga0e5d7298fc39b3c187fffbe30264c968).
 
-- [function] LMDB-BINDING-VERSION 
+- [function] LMDB-BINDING-VERSION
 
     Return a string representing the version of C lmdb based on which
     the CFFI bindings were created. The version string has the same
@@ -674,7 +674,7 @@ committed child transactions, are discarded.
     COMMIT-TXN or ABORT-TXN have not been called on it. Also, RESET-TXN
     without a corresponding RENEW-TXN closes the transaction.
 
-- [function] TXN-ID 
+- [function] TXN-ID
 
     The ID of TXN. IDs are integers incrementing from 1. For a
     read-only transaction, this corresponds to the snapshot being read;
@@ -1016,10 +1016,10 @@ associated with the same C lmdb database, which declutters the code:
       G3T) must be a 1D byte array. If its element type
       is `(UNSIGNED-BYTE 8)`, then the data can be passed to the foreign
       code more efficiently, but declaring the element type is not
-      required. For example, VECTORs can be used as long as the actual
-      elements are of type `(UNSIGNED-BYTE 8)`. Foreign byte arrays to
-      be decoded (e.g. the value returned by G3T) are returned as
-      OCTETS.
+      required. For example, [VECTOR][type]s can be used as long as the
+      actual elements are of type `(UNSIGNED-BYTE 8)`. Foreign byte
+      arrays to be decoded (e.g. the value returned by G3T) are returned
+      as OCTETS.
     
     - :UTF-8: Data to be encoded must be a string, which is converted to
       octets by TRIVIAL-UTF-8. Null-terminated. Foreign byte arrays are
@@ -1029,9 +1029,9 @@ associated with the same C lmdb database, which declutters the code:
       Lisp type: strings as :UTF-8, vectors as :OCTETS, `(UNSIGNED-BYTE
       64)` as :UINT64. Decoding is always performed as :OCTETS.
     
-    - A CONS: Data is encoded by the function in the CAR of the cons and
-      decoded by the function in the CDR. For example, :UINT64 is
-      equivalent to `(CONS #'UINT64-TO-OCTETS #'MDB-VAL-TO-UINT64)`.
+    - A [CONS][type]: Data is encoded by the function in the CAR of the
+      cons and decoded by the function in the CDR. For example, :UINT64
+      is equivalent to `(CONS #'UINT64-TO-OCTETS #'MDB-VAL-TO-UINT64)`.
 
 
 - [macro] WITH-MDB-VAL-SLOTS (%BYTES SIZE MDB-VAL) &BODY BODY
@@ -1152,10 +1152,10 @@ following variables.
     supports @DUPSORT, then the first value for KEY will be returned.
     Retrieval of other values requires the use of @LMDB/CURSORS.
     
-    This function is called G3T instead of GET to avoid having to shadow
-    CL:GET when importing the LMDB package. On the other hand, importing
-    the LMDB+ package, which has LMDB::GET exported, requires some
-    shadowing.
+    This function is called G3T instead of GET to avoid
+    having to shadow CL:GET when importing the LMDB package. On the
+    other hand, importing the LMDB+ package, which has LMDB::GET
+    exported, requires some shadowing.
     
     The LMDB+ package is like the LMDB package, but it has `#'LMDB:G3T`
     fbound to LMDB+:G3T so it probably needs shadowing to avoid conflict

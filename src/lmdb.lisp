@@ -131,7 +131,7 @@
          (assert ,got-it () "Didn't get expected ~S." ',condition-type)))))
 
 
-(defsection @lmdb-manual (:title "LMDB Manual")
+(defsection @lmdb-manual (:title "\\LMDB Manual")
   (lmdb asdf:system)
   (@lmdb/links section)
   (@lmdb/introduction section)
@@ -232,7 +232,7 @@
   LMDB treats keys and values as opaque byte arrays to be hung on a B+
   tree, and only requires a comparison function to be defined over
   keys. LMDB knows how to serialize the types `(UNSIGNED-BYTE 64)` and
-  STRING (which are often used as keys so sorting must work as
+  [STRING][type] (which are often used as keys so sorting must work as
   expected). Serialization of the rest of the datatypes is left to the
   client. See @LMDB/ENCODINGS for more.
   """)
@@ -1860,10 +1860,10 @@
     G3T) must be a 1D byte array. If its element type
     is `(UNSIGNED-BYTE 8)`, then the data can be passed to the foreign
     code more efficiently, but declaring the element type is not
-    required. For example, VECTORs can be used as long as the actual
-    elements are of type `(UNSIGNED-BYTE 8)`. Foreign byte arrays to
-    be decoded (e.g. the value returned by G3T) are returned as
-    OCTETS.
+    required. For example, [VECTOR][type]s can be used as long as the
+    actual elements are of type `(UNSIGNED-BYTE 8)`. Foreign byte
+    arrays to be decoded (e.g. the value returned by G3T) are returned
+    as OCTETS.
 
   - :UTF-8: Data to be encoded must be a string, which is converted to
     octets by TRIVIAL-UTF-8. Null-terminated. Foreign byte arrays are
@@ -1873,9 +1873,9 @@
     Lisp type: strings as :UTF-8, vectors as :OCTETS, `(UNSIGNED-BYTE
     64)` as :UINT64. Decoding is always performed as :OCTETS.
 
-  - A CONS: Data is encoded by the function in the CAR of the cons and
-    decoded by the function in the CDR. For example, :UINT64 is
-    equivalent to `(CONS #'UINT64-TO-OCTETS #'MDB-VAL-TO-UINT64)`.
+  - A [CONS][type]: Data is encoded by the function in the CAR of the
+    cons and decoded by the function in the CDR. For example, :UINT64
+    is equivalent to `(CONS #'UINT64-TO-OCTETS #'MDB-VAL-TO-UINT64)`.
   """
   `(or (member nil :uint64 :octets :utf-8)
        cons))
@@ -2454,10 +2454,10 @@
   supports @DUPSORT, then the first value for KEY will be returned.
   Retrieval of other values requires the use of @LMDB/CURSORS.
 
-  This function is called G3T instead of GET to avoid having to shadow
-  CL:GET when importing the LMDB package. On the other hand, importing
-  the LMDB+ package, which has LMDB::GET exported, requires some
-  shadowing.
+  This function is called G3T instead of [GET][dislocated] to avoid
+  having to shadow CL:GET when importing the LMDB package. On the
+  other hand, importing the LMDB+ package, which has LMDB::GET
+  exported, requires some shadowing.
 
   The LMDB+ package is like the LMDB package, but it has `#'LMDB:G3T`
   fbound to LMDB+:G3T so it probably needs shadowing to avoid conflict

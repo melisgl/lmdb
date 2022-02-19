@@ -9,7 +9,7 @@
      (, @lmdb-manual)
      :source-uri-fn ,(make-github-source-uri-fn
                       :lmdb
-                      "https://github.com/antimer/lmdb"))))
+                      "https://github.com/melisgl/lmdb"))))
 (register-doc-in-pax-world :lmdb (pax-sections) (pax-pages))
 
 #+nil

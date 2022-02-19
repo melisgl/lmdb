@@ -92,7 +92,7 @@
     `(sb-sys:with-interrupts ,@body)))
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  ;; This is very bad. See @SAFETY.
+  ;; This is very bad. See @LMDB/SAFETY.
   (unless (fboundp 'without-interrupts)
     (error "WITHOUT-INTERRUPTS not implemented."))
   ;; This is milder., but it means that WITH-TXN's body will not be
@@ -131,35 +131,35 @@
          (assert ,got-it () "Didn't get expected ~S." ',condition-type)))))
 
 
-(defsection @lmdb-manual (:title "LMDB Manual")
+(defsection @lmdb-manual (:title "\\LMDB Manual")
   (lmdb asdf:system)
-  (@lmdb-links section)
-  (@lmdb-introduction section)
-  (@design-and-implementation section)
-  (@version section)
-  (@environments section)
-  (@transactions section)
-  (@databases section)
-  (@encodings section)
-  (@basic-operations section)
-  (@cursors section)
-  (@conditions section))
+  (@lmdb/links section)
+  (@lmdb/introduction section)
+  (@lmdb/design-and-implementation section)
+  (@lmdb/version section)
+  (@lmdb/environments section)
+  (@lmdb/transactions section)
+  (@lmdb/databases section)
+  (@lmdb/encodings section)
+  (@lmdb/basic-operations section)
+  (@lmdb/cursors section)
+  (@lmdb/conditions section))
 
-(defsection @lmdb-links (:title "Links")
+(defsection @lmdb/links (:title "Links")
   "Here is the [official repository](https://github.com/antimer/lmdb)
   and the [HTML
   documentation](http://melisgl.github.io/mgl-pax-world/lmdb-manual.html)
   for the latest version.")
 
-(defsection @lmdb-introduction (:title "Introduction")
+(defsection @lmdb/introduction (:title "Introduction")
   """[LMDB](http://www.lmdb.tech/doc/), the Lightning Memory-mapped
   Database, is an [ACID](https://en.wikipedia.org/wiki/ACID) key-value
   database with
   [MVCC](https://en.wikipedia.org/wiki/Multiversion_concurrency_control).
   It is a small C library ("C lmdb" from now on), around which LMDB is
   a Common Lisp wrapper. LMDB covers most of C lmdb's functionality,
-  has a simplified API, much needed @SAFETY checks, and comprehensive
-  documentation.
+  has a simplified API, much needed @LMDB/SAFETY checks, and
+  comprehensive documentation.
 
   Compared to other key-value stores, LMDB's distuingishing features
   are:
@@ -232,16 +232,16 @@
   LMDB treats keys and values as opaque byte arrays to be hung on a B+
   tree, and only requires a comparison function to be defined over
   keys. LMDB knows how to serialize the types `(UNSIGNED-BYTE 64)` and
-  STRING (which are often used as keys so sorting must work as
+  [STRING][type] (which are often used as keys so sorting must work as
   expected). Serialization of the rest of the datatypes is left to the
-  client. See @ENCODINGS for more.
+  client. See @LMDB/ENCODINGS for more.
   """)
 
-(defsection @design-and-implementation (:title "Design and implementation")
-  (@safety section)
-  (@deviations-from-the-lmdb-api section))
+(defsection @lmdb/design-and-implementation (:title "Design and implementation")
+  (@lmdb/safety section)
+  (@lmdb/deviations-from-the-lmdb-api section))
 
-(defsection @safety (:title "Safety")
+(defsection @lmdb/safety (:title "Safety")
   "The lmdb C API trusts client code to respect its rules. Being C,
   managing object lifetimes is the biggest burden. There are also
   rules that are documented, but not enforced. This Lisp wrapper tries
@@ -325,10 +325,10 @@
   Note that the library is not reentrant, so don't call LMDB from
   signal handlers.")
 
-(defsection @deviations-from-the-lmdb-api
+(defsection @lmdb/deviations-from-the-lmdb-api
     (:title "Deviations from the C lmdb API")
   "The following are the most prominent deviations and omissions from
-  the C lmdb API in addition to those listed in @SAFETY.
+  the C lmdb API in addition to those listed in @LMDB/SAFETY.
 
   ##### Environments
 
@@ -360,11 +360,11 @@
     flag.")
 
 
-(defsection @conditions (:title "Conditions")
+(defsection @lmdb/conditions (:title "Conditions")
   (lmdb-serious-condition condition)
   (lmdb-error condition)
-  (@lmdb-error-code-conditions section)
-  (@additional-conditions section))
+  (@lmdb/error-code-conditions section)
+  (@lmdb/additional-conditions section))
 
 ;;; C lmdb uses -30600 to -30799. We use -30599 and up.
 (defparameter +cursor-uninitialized+ -30599)
@@ -459,7 +459,7 @@
            :error-code error-code
            :control-string control-string :format-args format-args)))
 
-(defsection @lmdb-error-code-conditions
+(defsection @lmdb/error-code-conditions
     (:title "Conditions for C lmdb error codes")
   "The following conditions correspond to [C lmdb error
   codes](http://www.lmdb.tech/doc/group__errors.html)."
@@ -586,7 +586,7 @@
   ()
   (:documentation "The specified DBI was changed unexpectedly."))
 
-(defsection @additional-conditions (:title "Additional conditions")
+(defsection @lmdb/additional-conditions (:title "Additional conditions")
   "The following conditions do not have a dedicated C lmdb error
   code."
   (lmdb-cursor-uninitialized-error condition)
@@ -619,9 +619,9 @@
   ()
   (:documentation """A parent transaction and its cursors may not
   issue any other operations than COMMIT-TXN and ABORT-TXN while it
-  has active child transactions. In LMDB, @BASIC-OPERATIONS are always
-  executed in the @ACTIVE-TRANSACTION, but @CURSORS can refer to the
-  parent transaction:
+  has active child transactions. In LMDB, @LMDB/BASIC-OPERATIONS are
+  always executed in the @ACTIVE-TRANSACTION, but @LMDB/CURSORS can
+  refer to the parent transaction:
 
   ```
   (with-temporary-env (*env*)
@@ -635,7 +635,7 @@
   ```"""))
 
 
-(defsection @version (:title "Library versions")
+(defsection @lmdb/version (:title "Library versions")
   (lmdb-foreign-version function)
   (lmdb-binding-version function))
 
@@ -659,7 +659,7 @@
           liblmdb:+version-patch+))
 
 
-(defsection @environments (:title "Environments")
+(defsection @lmdb/environments (:title "Environments")
   "An environment (class ENV) is basically a single memory-mapped file
   holding all the data, plus some flags determining how we interact
   it. An environment can have multiple databases (class DB), each of
@@ -667,11 +667,11 @@
   database in a relational db, and the databases in it are like tables
   and indices. The terminology comes from [Berkeley
   DB](https://docs.oracle.com/cd/E17276_01/html/programmer_reference/env.html)."
-  (@env-reference section)
-  (@opening-and-closing-env section)
-  (@misc-env section))
+  (@lmdb/env-reference section)
+  (@lmdb/opening-and-closing-env section)
+  (@lmdb/misc-env section))
 
-(defsection @env-reference (:title "Environments reference")
+(defsection @lmdb/env-reference (:title "Environments reference")
   (env class)
   (env-path (reader env))
   (env-max-dbs (reader env))
@@ -723,7 +723,7 @@
 (defun %envp (env)
   (slot-value env '%envp))
 
-(defsection @opening-and-closing-env
+(defsection @lmdb/opening-and-closing-env
     (:title "Opening and closing environments")
   (*env-class* variable)
   (open-env function)
@@ -914,7 +914,7 @@
   - TLS: Setting it to NIL allows each OS thread to have multiple
     read-only transactions (see WITH-TXN's IGNORE-PARENT argument). It
     also allows and transactions not to be tied to a single thread,
-    but that's quite dangerous, see @SAFETY.
+    but that's quite dangerous, see @LMDB/SAFETY.
 
   - READ-AHEAD: Turn off readahead as in `madvise(MADV_RANDOM)`. Most
     operating systems perform read-ahead on read requests by default.
@@ -1081,9 +1081,10 @@
 (defun close-env (env &key force)
   "Close ENV and free the memory. Closing an already closed ENV has no effect.
 
-  Since accessing @TRANSACTIONS, @DATABASES and @CURSORS after closing
-  their environment would risk database curruption, CLOSE-ENV makes
-  sure that they are not in use. There are two ways this can happen:
+  Since accessing @LMDB/TRANSACTIONS, @LMDB/DATABASES and
+  @LMDB/CURSORS after closing their environment would risk database
+  curruption, CLOSE-ENV makes sure that they are not in use. There are
+  two ways this can happen:
 
   - If ENV was opened :SYNCHRONIZED (see OPEN-ENV), then CLOSE-ENV
     waits until there are no @ACTIVE-TRANSACTIONs in ENV before
@@ -1094,9 +1095,9 @@
 
   - On the other hand, if SYNCHRONIZED was NIL, then - unless FORCE is
     true - calling CLOSE-ENV signals an LMDB-ERROR to avoid the
-    @SAFETY issues involved in closing the environment. Environments
-    opened with :SYNCHRONIZED NIL are only closed when they are
-    garbage collected and their finalizer is run. Still, for
+    @LMDB/SAFETY issues involved in closing the environment.
+    Environments opened with :SYNCHRONIZED NIL are only closed when
+    they are garbage collected and their finalizer is run. Still, for
     production it might be worth it to gain the last bit of
     performance.
 
@@ -1138,7 +1139,7 @@
           (progn ,@body)
        (close-env ,env))))
 
-(defsection @misc-env (:title "Miscellaneous environment functions")
+(defsection @lmdb/misc-env (:title "Miscellaneous environment functions")
   (check-for-stale-readers function)
   (env-statistics function)
   (env-info function)
@@ -1292,7 +1293,7 @@
                                   :if-does-not-exist :ignore))))
 
 
-(defsection @transactions (:title "Transactions")
+(defsection @lmdb/transactions (:title "Transactions")
   "The LMDB environment supports transactional reads and writes. By
   default, these provide the standard ACID (atomicity, consistency,
   isolation, durability) guarantees. Writes from a transaction are not
@@ -1320,7 +1321,7 @@
   (abort-txn function)
   (renew-txn function)
   (reset-txn function)
-  (@nesting-transactions section))
+  (@lmdb/nesting-transactions section))
 
 (declaim (inline make-txn txn-%txna txn-flags))
 (defstruct txn
@@ -1472,7 +1473,7 @@
   - Likewise, META-SYNC is the per-transaction equivalent of the
     OPEN-ENV's META-SYNC.
 
-  Also see @NESTING-TRANSACTIONS.
+  Also see @LMDB/NESTING-TRANSACTIONS.
 
   Wraps [mdb_txn_begin()](http://www.lmdb.tech/doc/group__mdb.html#gad7ea55da06b77513609efebd44b26920)."
   (alexandria:with-gensyms (with-txn-body)
@@ -1701,7 +1702,7 @@
              nil)
           (t (lmdb-error return-code)))))))
 
-(defsection @nesting-transactions (:title "Nesting transactions")
+(defsection @lmdb/nesting-transactions (:title "Nesting transactions")
   """When WITH-TXNs are nested (i.e. one is executed in the dynamic
   extent of another), we speak of nested transactions. Transaction can
   be nested to arbitrary levels. Child transactions may be committed
@@ -1748,15 +1749,16 @@
   COMMIT-TXN, ABORT-TXN, and RESET-TXN all close the
   @ACTIVE-TRANSACTION (see OPEN-TXN-P). When the active transaction is
   not open, database operations such as G3T, PUT, DEL signal
-  LMDB-BAD-TXN-ERROR. Furthermore, any @CURSORS created in the context
-  of the transaction will no longer be valid (but see CURSOR-RENEW).
+  LMDB-BAD-TXN-ERROR. Furthermore, any @LMDB/CURSORS created in the
+  context of the transaction will no longer be valid (but see
+  CURSOR-RENEW).
 
   An LMDB parent transaction and its cursors must not issue operations
   other than COMMIT-TXN and ABORT-TXN while there are active child
   transactions. As the Lisp side does not expose transaction objects
-  directly, performing @BASIC-OPERATIONS in the parent transaction is
-  not possible, but it is possible with @CURSORS as they are tied to
-  the transaction in which they were created.
+  directly, performing @LMDB/BASIC-OPERATIONS in the parent
+  transaction is not possible, but it is possible with @LMDB/CURSORS
+  as they are tied to the transaction in which they were created.
 
   IGNORE-PARENT true overrides the default nesting semantics of
   WITH-TXN and creates a new top-level transaction, which is not a
@@ -1778,12 +1780,12 @@
   """)
 
 
-(defsection @databases (:title "Databases")
-  (@the-unnamed-database section)
+(defsection @lmdb/databases (:title "Databases")
+  (@lmdb/the-unnamed-database section)
   (@dupsort section)
-  (@database-api section))
+  (@lmdb/database-api section))
 
-(defsection @the-unnamed-database (:title "The unnamed database")
+(defsection @lmdb/the-unnamed-database (:title "The unnamed database")
   "LMDB has a default, unnamed database backed by a B+ tree. This db
   can hold normal key-value pairs and named databases. The unnamed
   database can be accessed by passing NIL as the database name to
@@ -1796,14 +1798,14 @@
   GET-DB. Just as a named database is a B+ tree associated with a
   key (its name) in the B+ tree of the unnamed database, so do these
   sorted duplicates form a B+ tree under a key in a named or the
-  unnamed database. Among the @BASIC-OPERATIONS, PUT and DEL are
+  unnamed database. Among the @LMDB/BASIC-OPERATIONS, PUT and DEL are
   equipped to deal with duplicate values, but G3T is too limited, and
-  @CURSORS are needed to make full use of DUPSORT.
+  @LMDB/CURSORS are needed to make full use of DUPSORT.
 
   When using this feature the limit on the maximum key size applies to
   duplicate data, as well. See ENV-MAX-KEY-SIZE.")
 
-(defsection @database-api (:title "Database API")
+(defsection @lmdb/database-api (:title "Database API")
   (*db-class* variable)
   (get-db function)
   (db class)
@@ -1858,10 +1860,10 @@
     G3T) must be a 1D byte array. If its element type
     is `(UNSIGNED-BYTE 8)`, then the data can be passed to the foreign
     code more efficiently, but declaring the element type is not
-    required. For example, VECTORs can be used as long as the actual
-    elements are of type `(UNSIGNED-BYTE 8)`. Foreign byte arrays to
-    be decoded (e.g. the value returned by G3T) are returned as
-    OCTETS.
+    required. For example, [VECTOR][type]s can be used as long as the
+    actual elements are of type `(UNSIGNED-BYTE 8)`. Foreign byte
+    arrays to be decoded (e.g. the value returned by G3T) are returned
+    as OCTETS.
 
   - :UTF-8: Data to be encoded must be a string, which is converted to
     octets by TRIVIAL-UTF-8. Null-terminated. Foreign byte arrays are
@@ -1871,9 +1873,9 @@
     Lisp type: strings as :UTF-8, vectors as :OCTETS, `(UNSIGNED-BYTE
     64)` as :UINT64. Decoding is always performed as :OCTETS.
 
-  - A CONS: Data is encoded by the function in the CAR of the cons and
-    decoded by the function in the CDR. For example, :UINT64 is
-    equivalent to `(CONS #'UINT64-TO-OCTETS #'MDB-VAL-TO-UINT64)`.
+  - A [CONS][type]: Data is encoded by the function in the CAR of the
+    cons and decoded by the function in the CDR. For example, :UINT64
+    is equivalent to `(CONS #'UINT64-TO-OCTETS #'MDB-VAL-TO-UINT64)`.
   """
   `(or (member nil :uint64 :octets :utf-8)
        cons))
@@ -1889,7 +1891,7 @@
                integer-key reverse-key
                dupsort integer-dup reverse-dup dupfixed)
   "Open the database with NAME in the open environment ENV, and return
-  a DB object. If NAME is NIL, then the @THE-UNNAMED-DATABASE is
+  a DB object. If NAME is NIL, then the @LMDB/THE-UNNAMED-DATABASE is
   opened.
 
   If GET-DB is called with the same name multiple times, the returned
@@ -1899,9 +1901,9 @@
   because GET-DB starts a transaction itself to comply with C lmdb's
   requirements on
   [mdb_dbi_open()](http://www.lmdb.tech/doc/group__mdb.html#gac08cad5b096925642ca359a6d6f0562a) (see
-  @SAFETY). Since dbi handles are cached within ENV, subsequent calls
-  do not involve `mdb_dbi_open()` and are thus permissible within
-  transactions.
+  @LMDB/SAFETY). Since dbi handles are cached within ENV, subsequent
+  calls do not involve `mdb_dbi_open()` and are thus permissible
+  within transactions.
 
   CLASS designates the class which will instantiated. See *DB-CLASS*.
 
@@ -1913,7 +1915,7 @@
   :OCTETS or :UTF-8. KEY-ENCODING is set to :UINT64 when INTEGER-KEY
   is true. VALUE-ENCODING is set to :UINT64 when INTEGER-DUP is true.
   Note that changing the encoding does *not* reencode already existing
-  data. See @ENCODINGS for the full semantics.
+  data. See @LMDB/ENCODINGS for the full semantics.
 
   GET-DB may be called more than once with the same NAME and ENV, and
   the returned DB objects will have the same underlying C lmdb
@@ -1921,7 +1923,8 @@
   VALUE-ENCODING.
 
   The following flags are for database creation, they do not have any
-  effect in subsequent calls (except for the @THE-UNNAMED-DATABASE).
+  effect in subsequent calls (except for the
+  @LMDB/THE-UNNAMED-DATABASE).
 
   - INTEGER-KEY: Keys in the database are C `unsigned` or `size_t`
     integers encoded in native byte order. Keys must all be either
@@ -2064,7 +2067,7 @@
       (cffi:mem-ref %flagsp :uint))))
 
 
-(defsection @encodings (:title "Encoding and decoding data")
+(defsection @lmdb/encodings (:title "Encoding and decoding data")
   """In the C lmdb library, keys and values are opaque byte vectors
   only ever inspected internally to maintain the sort order (of keys
   and also duplicate values if @DUPSORT). The client is given the
@@ -2083,7 +2086,7 @@
   a string and the :UINT64 encoding of an integer coincide. The same
   consideration doubly applies to named databases, which share the key
   space with normal key-value pairs in the default database (see
-  @THE-UNNAMED-DATABASE).
+  @LMDB/THE-UNNAMED-DATABASE).
 
   Together, :UINT64 and :UTF-8 cover the common cases for keys. They
   trade off dynamic typing for easy sortability (using the default C
@@ -2135,7 +2138,7 @@
   (string-to-octets function)
   (octets-to-string function)
   (mdb-val-to-string function)
-  (@overriding-encodings section))
+  (@lmdb/overriding-encodings section))
 
 (defmacro with-mdb-val-slots ((%bytes size mdb-val) &body body)
   "Bind %BYTES and SIZE locally to the corresponding slots of MDB-VAL.
@@ -2270,11 +2273,11 @@
     (trivial-utf-8:utf-8-bytes-to-string octets :end (1- (length octets)))))
 
 
-(defsection @overriding-encodings (:title "Overriding encodings")
+(defsection @lmdb/overriding-encodings (:title "Overriding encodings")
   "Using multiple DB objects with different encodings is the
-  recommended practice (see the example in @ENCODINGS), but when that
-  is inconvenient, one can override the encodings with the following
-  variables."
+  recommended practice (see the example in @LMDB/ENCODINGS), but when
+  that is inconvenient, one can override the encodings with the
+  following variables."
   (*key-encoder* variable)
   (*key-decoder* variable)
   (*value-encoder* variable)
@@ -2440,7 +2443,7 @@
 
 
 
-(defsection @basic-operations (:title "Basic operations")
+(defsection @lmdb/basic-operations (:title "Basic operations")
   (g3t function)
   (put function)
   (del function))
@@ -2449,12 +2452,12 @@
   "Return the value from DB associated with KEY and T as the second
   value. If KEY is not found in DB, then NIL is returned. If DB
   supports @DUPSORT, then the first value for KEY will be returned.
-  Retrieval of other values requires the use of @CURSORS.
+  Retrieval of other values requires the use of @LMDB/CURSORS.
 
-  This function is called G3T instead of GET to avoid having to shadow
-  CL:GET when importing the LMDB package. On the other hand, importing
-  the LMDB+ package, which has LMDB::GET exported, requires some
-  shadowing.
+  This function is called G3T instead of [GET][dislocated] to avoid
+  having to shadow CL:GET when importing the LMDB package. On the
+  other hand, importing the LMDB+ package, which has LMDB::GET
+  exported, requires some shadowing.
 
   The LMDB+ package is like the LMDB package, but it has `#'LMDB:G3T`
   fbound to LMDB+:G3T so it probably needs shadowing to avoid conflict
@@ -2563,15 +2566,15 @@
                 (handle-return-code return-code))))))))
 
 
-(defsection @cursors (:title "Cursors")
+(defsection @lmdb/cursors (:title "Cursors")
   (with-cursor macro)
   (with-implicit-cursor macro)
   (cursor class)
   (cursor-db function)
   (@default-cursor glossary-term)
-  (@positioning-cursors section)
-  (@basic-cursor-operations section)
-  (@misc-cursor section))
+  (@lmdb/positioning-cursors section)
+  (@lmdb/basic-cursor-operations section)
+  (@lmdb/misc-cursor section))
 
 (declaim (inline make-cursor))
 (defstruct cursor
@@ -2719,7 +2722,7 @@
   keyword arguments as well - the cursor may be a required argument as
   in CURSOR-PUT. Still NIL can be passed explicitly.")
 
-(defsection @positioning-cursors (:title "Positioning cursors")
+(defsection @lmdb/positioning-cursors (:title "Positioning cursors")
   "The following functions *position* or *initialize* a cursor while
   returning the value (*a* value with @DUPSORT) associated with a key,
   or both the key and the value. Initialization is successful if there
@@ -3029,11 +3032,12 @@
               (liblmdb:+notfound+ nil)
               (t (lmdb-error return-code)))))))))
 
-(defsection @basic-cursor-operations (:title "Basic cursor operations")
+(defsection @lmdb/basic-cursor-operations (:title "Basic cursor operations")
   "The following operations are similar to G3T, PUT, DEL (the
-  @BASIC-OPERATIONS), but G3T has three variants (CURSOR-KEY-VALUE,
-  CURSOR-KEY, and CURSOR-VALUE). All of them require the cursor to be
-  positioned (see @POSITIONING-CURSORS)."
+  @LMDB/BASIC-OPERATIONS), but G3T has three variants
+  (CURSOR-KEY-VALUE, CURSOR-KEY, and CURSOR-VALUE). All of them
+  require the cursor to be positioned (see
+  @LMDB/POSITIONING-CURSORS)."
   (cursor-key-value function)
   (cursor-key function)
   (cursor-value function)
@@ -3179,7 +3183,7 @@
           (t (lmdb-error return-code)))))))
 
 
-(defsection @misc-cursor (:title "Miscellaneous cursor operations")
+(defsection @lmdb/misc-cursor (:title "Miscellaneous cursor operations")
   (cursor-renew function)
   (cursor-count function)
   (do-cursor macro)

@@ -53,10 +53,7 @@
           fix)
          package)))))
 
-#+x86-64
-(defctype size-t  :uint64)
-#-x86-64
-(defctype size-t  :uint32)
+(defctype size-t  :size)
 
 (defconstant #.(lispify "MDB_VERSION_MAJOR" 'constant) 0)
 (defconstant #.(lispify "MDB_VERSION_MINOR" 'constant) 9)

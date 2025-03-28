@@ -152,7 +152,7 @@
   for the latest version.")
 
 (defsection @lmdb/introduction (:title "Introduction")
-  """[LMDB](http://www.lmdb.tech/doc/), the Lightning Memory-mapped
+  """[\LMDB](http://www.lmdb.tech/doc/), the Lightning Memory-mapped
   Database, is an [ACID](https://en.wikipedia.org/wiki/ACID) key-value
   database with
   [MVCC](https://en.wikipedia.org/wiki/Multiversion_concurrency_control).
@@ -192,8 +192,8 @@
   - No transaction log.
 
   - It is very much like [Berkeley
-    DB](https://en.wikipedia.org/wiki/Berkeley_DB) done right, without
-    the fluff and much improved administration.
+    \DB](https://en.wikipedia.org/wiki/Berkeley_DB) done right,
+    without the fluff and much improved administration.
 
   Do read the [Caveats](http://www.lmdb.tech/doc/), though. On the
   Lisp side, this library __will not work with virtual threads__
@@ -327,7 +327,7 @@
 
 (defsection @lmdb/deviations-from-the-lmdb-api
     (:title "Deviations from the C lmdb API")
-  "The following are the most prominent deviations and omissions from
+  """The following are the most prominent deviations and omissions from
   the C lmdb API in addition to those listed in @LMDB/SAFETY.
 
   ##### Environments
@@ -340,7 +340,7 @@
 
   ##### Transactions
 
-  - Read-only WITH-TXNs are turned into noops when \"nested\" (unless
+  - Read-only WITH-TXNs are turned into noops when "nested" (unless
     IGNORE-PARENT).
 
   ##### Databases
@@ -356,8 +356,8 @@
     CURSOR-NEXT and CURSOR-VALUE.
 
   - PUT, CURSOR-PUT do not support the
-    [`RESERVE`](http://www.lmdb.tech/doc/group__mdb__put.html#gac0545c6aea719991e3eae6ccc686efcc)
-    flag.")
+    [`\\RESERVE`](http://www.lmdb.tech/doc/group__mdb__put.html#gac0545c6aea719991e3eae6ccc686efcc)
+    flag.""")
 
 
 (defsection @lmdb/conditions (:title "Conditions")

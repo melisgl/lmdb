@@ -35,15 +35,15 @@
 <a id="x-28-22lmdb-22-20ASDF-2FSYSTEM-3ASYSTEM-29"></a>
 
 - [system] **"lmdb"**
-    - Version: 0.1
-    - Description: Bindings to `LMDB`, the Lightning Memory-mapped Database.
-    - Licence: MIT, see COPYING.
-    - Author: Fernando Borretti <eudoxiahp@gmail.com>, James Anderson <james.anderson@setf.de>, Gábor Melis <mega@retes.hu>
-    - Maintainer: Fernando Borretti <eudoxiahp@gmail.com>
-    - Homepage: [https://github.com/antimer/lmdb](https://github.com/antimer/lmdb)
-    - Bug tracker: [https://github.com/antimer/lmdb/issues](https://github.com/antimer/lmdb/issues)
-    - Source control: [GIT](git@github.com:antimer/lmdb.git)
-    - Depends on: alexandria, bordeaux-threads, cl-reexport, mgl-pax, osicat, trivial-features, trivial-garbage, trivial-utf-8
+    - _Version:_ 0.1
+    - _Description:_ Bindings to `LMDB`, the Lightning Memory-mapped Database.
+    - _Licence:_ MIT, see COPYING.
+    - _Author:_ Fernando Borretti <eudoxiahp@gmail.com>, James Anderson <james.anderson@setf.de>, Gábor Melis <mega@retes.hu>
+    - _Maintainer:_ Fernando Borretti <eudoxiahp@gmail.com>
+    - _Homepage:_ [https://github.com/antimer/lmdb](https://github.com/antimer/lmdb)
+    - _Bug tracker:_ [https://github.com/antimer/lmdb/issues](https://github.com/antimer/lmdb/issues)
+    - _Source control:_ [GIT](git@github.com:antimer/lmdb.git)
+    - *Depends on:* alexandria, bordeaux-threads, cl-reexport, mgl-pax, osicat, trivial-features, trivial-garbage, trivial-utf-8
 
 <a id="x-28LMDB-3A-40LMDB-2FLINKS-20MGL-PAX-3ASECTION-29"></a>
 
@@ -568,7 +568,6 @@ and indices. The terminology comes from [Berkeley
     (with-env (*env* "/tmp/lmdb-test" :if-does-not-exist :create)
       ...)
     ```
-
 
 <a id="x-28LMDB-3AOPEN-ENV-P-20FUNCTION-29"></a>
 
@@ -1176,7 +1175,6 @@ associated with the same C lmdb database, which declutters the code:
       cons and decoded by the function in the [`CDR`][e012]. For example, `:UINT64`
       is equivalent to `(CONS #'UINT64-TO-OCTETS #'MDB-VAL-TO-UINT64)`.
 
-
 <a id="x-28LMDB-3AWITH-MDB-VAL-SLOTS-20MGL-PAX-3AMACRO-29"></a>
 
 - [macro] **WITH-MDB-VAL-SLOTS** *(%BYTES SIZE MDB-VAL) &BODY BODY*
@@ -1296,7 +1294,6 @@ following variables.
     => T
     ```
 
-
 <a id="x-28LMDB-3A-2AVALUE-ENCODER-2A-20VARIABLE-29"></a>
 
 - [variable] **\*VALUE-ENCODER\*** *NIL*
@@ -1396,7 +1393,7 @@ following variables.
 
 - [macro] **WITH-CURSOR** *(VAR DB) &BODY BODY*
 
-    Bind `VAR` to a fresh [`CURSOR`][6aef] on `DB`. Execute `BODY`, then close the
+    Bind `VAR` to a fresh [`CURSOR`][1306] on `DB`. Execute `BODY`, then close the
     cursor. Within the dynamic extent of `BODY`, this will be the
     [default cursor][d997]. The cursor is tied to the [active transaction][00c7].
     
@@ -1442,9 +1439,9 @@ following variables.
     Wraps [mdb\_cursor\_open()](http://www.lmdb.tech/doc/group__mdb.html#ga9ff5d7bd42557fd5ee235dc1d62613aa)
     and [mdb\_cursor\_close()](http://www.lmdb.tech/doc/group__mdb.html#gad685f5d73c052715c7bd859cc4c05188).
 
-<a id="x-28LMDB-3ACURSOR-20CLASS-29"></a>
+<a id="x-28LMDB-3ACURSOR-20STRUCTURE-29"></a>
 
-- [class] **CURSOR** *[STRUCTURE-OBJECT][2038]*
+- [structure] **CURSOR**
 
 <a id="x-28LMDB-3ACURSOR-DB-20-28MGL-PAX-3ASTRUCTURE-ACCESSOR-20LMDB-3ACURSOR-29-29"></a>
 
@@ -1455,7 +1452,7 @@ following variables.
 - [glossary-term] **default cursor**
 
     All operations, described below, that take cursor arguments accept
-    `NIL` instead of a [`CURSOR`][6aef] object, in which case the cursor from the
+    `NIL` instead of a [`CURSOR`][1306] object, in which case the cursor from the
     immediately enclosing [`WITH-CURSOR`][b1c7] or [`WITH-IMPLICIT-CURSOR`][7def] is used.
     This cursor is referred to as the *default cursor*.
     
@@ -1782,7 +1779,6 @@ require the cursor to be positioned (see
         (print (cons key value))))
     ```
 
-
 <a id="x-28LMDB-3ADO-CURSOR-DUP-20MGL-PAX-3AMACRO-29"></a>
 
 - [macro] **DO-CURSOR-DUP** *(VALUE-VAR CURSOR &KEY FROM-END) &BODY BODY*
@@ -1803,7 +1799,6 @@ require the cursor to be positioned (see
       (do-cursor-dup (value cursor)
         (print value)))
     ```
-
 
 <a id="x-28LMDB-3ADO-DB-20MGL-PAX-3AMACRO-29"></a>
 
@@ -1983,7 +1978,6 @@ codes](http://www.lmdb.tech/doc/group__errors.html).
     
     - The database was dropped and recreated with different flags.
 
-
 <a id="x-28LMDB-3ALMDB-BAD-RSLOT-ERROR-20CONDITION-29"></a>
 
 - [condition] **LMDB-BAD-RSLOT-ERROR** *[LMDB-ERROR][b3a1]*
@@ -2068,18 +2062,17 @@ code.
                 (cursor-set-key #(1) cursor)))))))
     ```
 
-
   [0090]: #x-28LMDB-3A-40LMDB-2FLINKS-20MGL-PAX-3ASECTION-29 "Links"
   [00c7]: #x-28LMDB-3A-40ACTIVE-TRANSACTION-20MGL-PAX-3AGLOSSARY-TERM-29 "active transaction"
   [03b4]: #x-28LMDB-3A-40LMDB-2FENCODINGS-20MGL-PAX-3ASECTION-29 "Encoding and decoding data"
   [0b9a]: #x-28LMDB-3ACLOSE-ENV-20FUNCTION-29 "LMDB:CLOSE-ENV FUNCTION"
   [12a5]: #x-28LMDB-3ALMDB-INCOMPATIBLE-ERROR-20CONDITION-29 "LMDB:LMDB-INCOMPATIBLE-ERROR CONDITION"
+  [1306]: #x-28LMDB-3ACURSOR-20STRUCTURE-29 "LMDB:CURSOR STRUCTURE"
   [13e8]: #x-28LMDB-3AG3T-20FUNCTION-29 "LMDB:G3T FUNCTION"
   [13f2]: #x-28LMDB-3A-2AKEY-ENCODER-2A-20VARIABLE-29 "LMDB:*KEY-ENCODER* VARIABLE"
   [186b]: #x-28LMDB-3A-40DUPSORT-20MGL-PAX-3ASECTION-29 "`DUPSORT`"
   [19d5]: #x-28LMDB-3A-2AVALUE-ENCODER-2A-20VARIABLE-29 "LMDB:*VALUE-ENCODER* VARIABLE"
   [1d55]: #x-28LMDB-3A-40LMDB-2FVERSION-20MGL-PAX-3ASECTION-29 "Library versions"
-  [2038]: http://www.lispworks.com/documentation/HyperSpec/Body/t_stu_ob.htm "STRUCTURE-OBJECT (MGL-PAX:CLHS CLASS)"
   [2070]: #x-28LMDB-3ALMDB-TXN-FULL-ERROR-20CONDITION-29 "LMDB:LMDB-TXN-FULL-ERROR CONDITION"
   [2462]: #x-28LMDB-3A-2ADB-CLASS-2A-20VARIABLE-29 "LMDB:*DB-CLASS* VARIABLE"
   [24f5]: #x-28LMDB-3ACURSOR-NEXT-NODUP-20FUNCTION-29 "LMDB:CURSOR-NEXT-NODUP FUNCTION"
@@ -2117,7 +2110,6 @@ code.
   [67cb]: #x-28LMDB-3A-40LMDB-2FDATABASE-API-20MGL-PAX-3ASECTION-29 "Database API"
   [6817]: #x-28LMDB-3ARENEW-TXN-20FUNCTION-29 "LMDB:RENEW-TXN FUNCTION"
   [69da]: #x-28LMDB-3AENV-MAP-SIZE-20-28MGL-PAX-3AREADER-20LMDB-3AENV-29-29 "LMDB:ENV-MAP-SIZE (MGL-PAX:READER LMDB:ENV)"
-  [6aef]: #x-28LMDB-3ACURSOR-20CLASS-29 "LMDB:CURSOR CLASS"
   [6ecf]: #x-28LMDB-3A-40LMDB-2FNESTING-TRANSACTIONS-20MGL-PAX-3ASECTION-29 "Nesting transactions"
   [6ed7]: #x-28LMDB-3AENV-PATH-20-28MGL-PAX-3AREADER-20LMDB-3AENV-29-29 "LMDB:ENV-PATH (MGL-PAX:READER LMDB:ENV)"
   [7269]: #x-28LMDB-3ACURSOR-LAST-20FUNCTION-29 "LMDB:CURSOR-LAST FUNCTION"

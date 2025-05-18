@@ -39,10 +39,10 @@
     - _Description:_ Bindings to `LMDB`, the Lightning Memory-mapped Database.
     - _Licence:_ MIT, see COPYING.
     - _Author:_ Fernando Borretti <eudoxiahp@gmail.com>, James Anderson <james.anderson@setf.de>, Gábor Melis <mega@retes.hu>
-    - _Maintainer:_ Fernando Borretti <eudoxiahp@gmail.com>
-    - _Homepage:_ [https://github.com/antimer/lmdb](https://github.com/antimer/lmdb)
-    - _Bug tracker:_ [https://github.com/antimer/lmdb/issues](https://github.com/antimer/lmdb/issues)
-    - _Source control:_ [GIT](git@github.com:antimer/lmdb.git)
+    - _Maintainer:_ Gábor Melis <mega@retes.hu>
+    - _Homepage:_ [https://github.com/melisgl/lmdb](https://github.com/melisgl/lmdb)
+    - _Bug tracker:_ [https://github.com/melisgl/lmdb/issues](https://github.com/melisgl/lmdb/issues)
+    - _Source control:_ [GIT](https://github.com/melisgl/lmdb.git)
     - *Depends on:* alexandria, bordeaux-threads, cl-reexport, mgl-pax, osicat, trivial-features, trivial-garbage, trivial-utf-8
 
 <a id="x-28LMDB-3A-40LMDB-2FLINKS-20MGL-PAX-3ASECTION-29"></a>

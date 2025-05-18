@@ -2,12 +2,12 @@
 
 (asdf:defsystem :lmdb
   :author "Fernando Borretti <eudoxiahp@gmail.com>, James Anderson <james.anderson@setf.de>, Gábor Melis <mega@retes.hu>"
-  :maintainer "Fernando Borretti <eudoxiahp@gmail.com>"
+  :maintainer "Gábor Melis <mega@retes.hu>"
   :license "MIT, see COPYING."
   :version "0.1"
-  :homepage "https://github.com/antimer/lmdb"
-  :bug-tracker "https://github.com/antimer/lmdb/issues"
-  :source-control (:git "git@github.com:antimer/lmdb.git")
+  :homepage "https://github.com/melisgl/lmdb"
+  :bug-tracker "https://github.com/melisgl/lmdb/issues"
+  :source-control (:git "https://github.com/melisgl/lmdb.git")
   :depends-on (#:alexandria #:trivial-utf-8 #:cl-reexport #:mgl-pax
                             #:bordeaux-threads #:osicat
                             #:trivial-features #:trivial-garbage)

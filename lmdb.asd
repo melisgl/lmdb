@@ -8,12 +8,14 @@
   :homepage "https://github.com/melisgl/lmdb"
   :bug-tracker "https://github.com/melisgl/lmdb/issues"
   :source-control (:git "https://github.com/melisgl/lmdb.git")
+  :defsystem-depends-on ("cffi-grovel")
   :depends-on (#:alexandria #:trivial-utf-8 #:cl-reexport #:mgl-pax
-                            #:bordeaux-threads #:osicat
+                            #:bordeaux-threads #:cffi
                             #:trivial-features #:trivial-garbage)
   :components ((:module "src"
                 :serial t
                 :components ((:file "package")
+                             (:cffi-grovel-file "errno-constants")
                              (:file "liblmdb")
                              (:file "lmdb")
                              (:file "lmdb+")

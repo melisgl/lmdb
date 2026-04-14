@@ -12,14 +12,6 @@
 
 (cffi:use-foreign-library liblmdb)
 
-(defun errno-value (keyword)
-  (cffi:foreign-enum-value 'osicat-posix::errno-values keyword))
-
-(defparameter +enoent+ (errno-value :enoent))
-(defparameter +eagain+ (errno-value :eagain))
-(defparameter +eacces+ (errno-value :eacces))
-(defparameter +einval+ (errno-value :einval))
-
 ;;; Singleton to reduce consing.
 (alexandria:define-constant +null-pointer+ (cffi:null-pointer)
   :test #'cffi:pointer-eq)

@@ -35,13 +35,14 @@
 <a id="x-28-22lmdb-22-20ASDF-2FSYSTEM-3ASYSTEM-29"></a>
 
 - [system] **"lmdb"**
+
     - _Version:_ 0.1
     - _Description:_ Bindings to `LMDB`, the Lightning Memory-mapped Database.
     - _Licence:_ MIT, see COPYING.
     - _Author:_ Fernando Borretti <eudoxiahp@gmail.com>, James Anderson <james.anderson@setf.de>, Gábor Melis <mega@retes.hu>
     - _Maintainer:_ Gábor Melis <mega@retes.hu>
-    - _Homepage:_ [https://github.com/melisgl/lmdb](https://github.com/melisgl/lmdb)
-    - _Bug tracker:_ [https://github.com/melisgl/lmdb/issues](https://github.com/melisgl/lmdb/issues)
+    - _Homepage:_ <https://github.com/melisgl/lmdb>
+    - _Bug tracker:_ <https://github.com/melisgl/lmdb/issues>
     - _Source control:_ [GIT](https://github.com/melisgl/lmdb.git)
     - *Depends on:* alexandria, bordeaux-threads, cl-reexport, mgl-pax, osicat, trivial-features, trivial-garbage, trivial-utf-8
 
@@ -2087,7 +2088,7 @@ code.
   [3bc3]: #x-28LMDB-3A-40LMDB-2FINTRODUCTION-20MGL-PAX-3ASECTION-29 "Introduction"
   [3c69]: #x-28LMDB-3AWITH-ENV-20MGL-PAX-3AMACRO-29 "LMDB:WITH-ENV MGL-PAX:MACRO"
   [412f]: #x-28LMDB-3AENV-20CLASS-29 "LMDB:ENV CLASS"
-  [4336]: http://www.lispworks.com/documentation/HyperSpec/Body/03_da.htm '"3.4.1" (MGL-PAX:CLHS MGL-PAX:SECTION)'
+  [4336]: http://www.lispworks.com/documentation/HyperSpec/Body/03_da.htm "\"3.4.1\" (MGL-PAX:CLHS MGL-PAX:SECTION)"
   [4437]: #x-28LMDB-3ADROP-DB-20FUNCTION-29 "LMDB:DROP-DB FUNCTION"
   [451a]: http://www.lispworks.com/documentation/HyperSpec/Body/t_smp_ar.htm "SIMPLE-ARRAY (MGL-PAX:CLHS TYPE)"
   [471b]: #x-28LMDB-3A-40LMDB-2FPOSITIONING-CURSORS-20MGL-PAX-3ASECTION-29 "Positioning cursors"

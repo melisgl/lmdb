@@ -146,10 +146,9 @@
   (@lmdb/conditions section))
 
 (defsection @lmdb/links (:title "Links")
-  "Here is the [official repository](https://github.com/antimer/lmdb)
-  and the [HTML
-  documentation](http://melisgl.github.io/mgl-pax-world/lmdb-manual.html)
-  for the latest version.")
+  "The official repository is <https://github.com/melisgl/lmdb>, and
+  this document in available in various formats on
+  <https://fixnum.com> for the latest version.")
 
 (defsection @lmdb/introduction (:title "Introduction")
   """[\LMDB](http://www.lmdb.tech/doc/), the Lightning Memory-mapped
